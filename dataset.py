@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from utils.visualize import convert_dicom_to_png
 import zipfile
 import io
@@ -40,11 +41,17 @@ class MammographyDataset(Dataset):
         self.df: pd.DataFrame = df
         self.zip_path: str = zip_path
         self.inter_name: str = inter_name
-        self.transform: transforms.Compose = (
-            transforms.ToTensor(),
-            transforms.Resize(size=(880, 1130)),  # mean / 3
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            
+
+        self.size = (1130, 880)
+        self.transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Resize(size=self.size),  # mean / 3
+                #transforms.Normalize(
+                #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                #),
+                # model will normalize internally
+            ]
         )
         self.categories: List[str] = None
         self.cat2idx: Dict[str, int] = None
@@ -52,6 +59,31 @@ class MammographyDataset(Dataset):
     def set_categories(self, categories: List[str], cat2idx: Dict[str, int]) -> None:
         self.categories = categories
         self.cat2idx = cat2idx
+
+    def _scale_bbox(self, idx: int) -> torch.Tensor:
+        row: pd.Series = self.df.iloc[idx]
+        original_size = (row["width"], row["height"])
+        scale_x = self.size[0] / original_size[0]
+        scale_y = self.size[1] / original_size[1]
+        boxes: torch.Tensor = torch.tensor(
+            [
+                [
+                    float(row["xmin"]) * scale_x,
+                    float(row["ymin"]) * scale_y,
+                    float(row["xmax"]) * scale_x,
+                    float(row["ymax"]) * scale_y,
+                ]
+            ],
+            dtype=torch.float32,
+        )
+        return boxes
+
+    def _scale_img(self, img: np.ndarray) -> np.ndarray:
+        img = img.astype(np.float32)
+        img = (img - img.min()) / (img.max() - img.min())
+        img = np.stack([img, img, img], axis=-1)
+        # img = np.stack([img] * 3)
+        return img
 
     def __len__(self) -> int:
         return len(self.df)
@@ -66,7 +98,9 @@ class MammographyDataset(Dataset):
             with zf.open(dicom_path) as dicom_file:
                 dicom_bytes: io.BytesIO = io.BytesIO(dicom_file.read())
                 png_img = convert_dicom_to_png(dicom_bytes)
-                img: torch.Tensor = self.transform(png_img)
+
+                png_img = self._scale_img(png_img)
+                img = self.transform(png_img)
 
         target = {
             "boxes": torch.zeros((0, 4), dtype=torch.float32),
@@ -74,27 +108,19 @@ class MammographyDataset(Dataset):
         }
 
         if not pd.isna(row["xmin"]):
+            boxes = self._scale_bbox(idx)
+        else:
+            boxes = torch.zeros((1, 4), dtype=torch.float32)
 
-            boxes: torch.Tensor = torch.tensor(
-                [
-                    [
-                        float(row["xmin"]),
-                        float(row["ymin"]),
-                        float(row["xmax"]),
-                        float(row["ymax"]),
-                    ]
-                ],
-                dtype=torch.float32,
-            )
+        labels = torch.tensor(
+            [self.cat2idx["-".join(ast.literal_eval(row["finding_categories"]))]],
+            dtype=torch.int64,
+        )
 
-            categories: List[str] = row["finding_categories"]
-            if isinstance(categories, str):
-                categories = ast.literal_eval(categories)
-            labels: torch.Tensor = torch.tensor(
-                [self.cat2idx[categories[0]]], dtype=torch.int64
-            )
-
-            target["boxes"] = boxes
-            target["labels"] = labels
+        target["boxes"] = boxes
+        target["labels"] = labels
+        target["image_id"] = image_id
+        target["size"] = (row["height"], row["width"])
+        target["category"] = row["finding_categories"]  # for debugging
 
         return img, target
