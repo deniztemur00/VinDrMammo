@@ -31,6 +31,11 @@ def create_categories(df: pd.DataFrame) -> tuple[List[str], Dict[str, int]]:
     return all_categories, cat2idx
 
 
+def custom_collate(batch):
+    images = [item[0] for item in batch]
+    targets = [item[1] for item in batch]
+    return images, targets
+
 class MammographyDataset(Dataset):
     def __init__(
         self,
@@ -103,14 +108,14 @@ class MammographyDataset(Dataset):
                 img = self.transform(png_img)
 
         target = {
-            "boxes": torch.zeros((0, 4), dtype=torch.float32),
+            "boxes": torch.ones((0, 4), dtype=torch.float32),
             "labels": torch.zeros((0,), dtype=torch.int64),
         }
 
         if not pd.isna(row["xmin"]):
             boxes = self._scale_bbox(idx)
         else:
-            boxes = torch.zeros((1, 4), dtype=torch.float32)
+            boxes = torch.ones((1, 4), dtype=torch.float32)
 
         labels = torch.tensor(
             [self.cat2idx["-".join(ast.literal_eval(row["finding_categories"]))]],
