@@ -114,8 +114,11 @@ class MammographyDataset(Dataset):
 
         if not pd.isna(row["xmin"]):
             boxes = self._scale_bbox(idx)
+            
         else:
             boxes = torch.ones((1, 4), dtype=torch.float32)
+            boxes[:,2:] += 0.1 # x
+
 
         labels = torch.tensor(
             [self.cat2idx["-".join(ast.literal_eval(row["finding_categories"]))]],
