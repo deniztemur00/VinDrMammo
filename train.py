@@ -2,6 +2,7 @@ import os
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 class Trainer:
@@ -27,6 +28,21 @@ class Trainer:
         self.model.to(self.device)
         self.scheduler = CosineAnnealingLR(self.optimizer, T_max=self.epochs)
         self.name = name if name else ""
+        self.train_losses = []
+        self.val_losses = []
+
+    def save_loss_plot(self):
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.train_losses, label='Training Loss')
+        if self.val_losses:
+            plt.plot(self.val_losses, label='Validation Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training Progress')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(self.save_dir, f'{self.name}_losses.png'))
+        plt.close()
 
     def train(self):
         best_loss = float("inf")
@@ -48,10 +64,7 @@ class Trainer:
                         }
                         for t in targets
                     ]  # Process each target dict
-                    print(type(targets), len(targets))
-                    for target in targets:
-                        target["boxes"] = target["boxes"].to(self.device)
-                        target["labels"] = target["labels"].to(self.device)
+                    
 
                     loss_dict = self.model(images, targets)
                     losses = sum(loss for loss in loss_dict.values())
@@ -65,6 +78,7 @@ class Trainer:
                         {"Loss": f"{current_loss:.4f}", "LR": f"{lr:.6f}"}
                     )
                 train_loss /= len(self.train_loader)
+                self.train_losses.append(train_loss)
                 if self.val_loader is not None:
                     val_loss = self.validate()
                     if val_loss < best_loss:
@@ -83,6 +97,8 @@ class Trainer:
         except KeyboardInterrupt:
             print("Training interrupted. Saving the model...")
             self.save(os.path.join(self.save_dir, "interrupted_model.pth"))
+            self.save_loss_plot()
+            return
 
     def validate(self):
         self.model.eval()
@@ -100,6 +116,7 @@ class Trainer:
                 current_val_loss = val_loss / (val_loader.n + 1)
                 val_loader.set_postfix({"Val Loss": f"{current_val_loss:.4f}"})
         val_loss /= len(self.val_loader)
+        self.val_losses.append(val_loss)
         return val_loss
 
     def save(self, filename):
