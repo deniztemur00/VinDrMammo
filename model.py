@@ -1,17 +1,18 @@
-import torch
 from torch import nn
 from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+# from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from dataclasses import dataclass
 from typing import Tuple
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 from torchvision.models.detection.anchor_utils import AnchorGenerator
+from torchvision.models import ResNet50_Weights
 
 
 @dataclass
 class FasterRCNNConfig:
     num_classes: int = 35
-    backbone_name: str = "resnet50" # resnet101
+    backbone_name: str = "resnet50"  # resnet101
     pretrained_backbone: bool = True
     min_size: int = 800
     max_size: int = 1333
@@ -34,7 +35,9 @@ class CustomFasterRCNN(nn.Module):
         )
 
         # Load the backbone
-        backbone = resnet_fpn_backbone(config.backbone_name, config.pretrained_backbone)
+        backbone = resnet_fpn_backbone(
+            config.backbone_name, config.pretrained_backbone, weights=ResNet50_Weights
+        )
 
         # Create the Faster R-CNN model with the specified configuration
         self.model = FasterRCNN(
