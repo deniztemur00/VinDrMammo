@@ -11,7 +11,6 @@ class Trainer:
         model: torch.nn.Module,
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader = None,
-        device: str = "cpu",
         epochs: int = 10,
         lr: float = 1e-3,
         save_dir: str = "models/",
@@ -21,7 +20,8 @@ class Trainer:
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
         self.train_loader = train_loader
         self.val_loader = val_loader
-        self.device = device
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
         self.epochs = epochs
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
@@ -33,15 +33,15 @@ class Trainer:
 
     def save_loss_plot(self):
         plt.figure(figsize=(10, 5))
-        plt.plot(self.train_losses, label='Training Loss')
+        plt.plot(self.train_losses, label="Training Loss")
         if self.val_losses:
-            plt.plot(self.val_losses, label='Validation Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.title('Training Progress')
+            plt.plot(self.val_losses, label="Validation Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Training Progress")
         plt.legend()
         plt.grid(True)
-        plt.savefig(os.path.join(self.save_dir, f'{self.name}_losses.png'))
+        plt.savefig(os.path.join(self.save_dir, f"{self.name}_losses.png"))
         plt.close()
 
     def train(self):
@@ -64,7 +64,6 @@ class Trainer:
                         }
                         for t in targets
                     ]  # Process each target dict
-                    
 
                     loss_dict = self.model(images, targets)
                     losses = sum(loss for loss in loss_dict.values())
