@@ -1,8 +1,10 @@
 import os
 import torch
+from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from evaluation import evaluate_classification
 
 
 class Trainer:
@@ -108,6 +110,10 @@ class Trainer:
     def validate(self):
         self.model.eval()
         val_loss = 0.0
+        birad_preds = []
+        birad_targets = []
+        density_preds = []
+        density_targets = []
         with torch.no_grad():
             val_loader = tqdm(self.val_loader, desc="Validation", leave=False)
             for images, targets in val_loader:
@@ -121,14 +127,47 @@ class Trainer:
                     for t in targets
                 ]  # Process each target dict
 
-                loss_dict = self.model(images, targets)
-                losses = sum(loss for loss in loss_dict.values())
-                val_loss += losses.item()
-                current_val_loss = val_loss / (val_loader.n + 1)
-                val_loader.set_postfix({"Val Loss": f"{current_val_loss:.4f}"})
-        val_loss /= len(self.val_loader)
-        self.val_losses.append(val_loss)
+                detections, birads_probs, density_probs = self.model(images)
+                birad_preds.extend(birads_probs.argmax(dim=1).cpu().numpy())
+                birad_targets.extend(
+                    torch.stack([t["birads"] for t in targets]).flatten().cpu().numpy()
+                )
+                density_preds.extend(density_probs.argmax(dim=1).cpu().numpy())
+                density_targets.extend(
+                    torch.stack([t["density"] for t in targets]).flatten().cpu().numpy()
+                )
+
+                
+
+                birad_results = evaluate_classification(
+                    birads_probs, torch.stack(birad_targets)
+                )
+                density_results = evaluate_classification(
+                    density_probs, torch.stack(density_targets)
+                )
+
+                
+                val_loader.set_postfix(birad_results)
+
         return val_loss
+
+    def eval_loss(self, detections, birads_logits, density_logits, targets):
+        """Compute detection and classification losses during evaluation"""
+        loss_dict = {}
+
+        # Get classification targets
+        birads_targets = torch.stack([t["birads"] for t in targets]).flatten().long()
+        density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
+
+        # Compute classification losses
+        birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
+        density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
+
+        # Add to loss dict
+        loss_dict["birads_loss"] = birads_loss
+        loss_dict["density_loss"] = density_loss
+
+        return loss_dict
 
     def save(self, filename):
         torch.save(self.model.state_dict(), filename)
