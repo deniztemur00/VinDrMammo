@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN
 
@@ -8,10 +9,14 @@ from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models import ResNet50_Weights
 
+from torchvision.models.detection.image_list import ImageList
+
 
 @dataclass
 class FasterRCNNConfig:
     num_classes: int = 35
+    num_birads_classes: int = 5
+    num_density_classes: int = 4
     backbone_name: str = "resnet50"  # resnet101
     pretrained_backbone: bool = True
     min_size: int = 800
@@ -53,30 +58,78 @@ class CustomFasterRCNN(nn.Module):
             box_fg_iou_thresh=config.box_fg_iou_thresh,
             box_bg_iou_thresh=config.box_bg_iou_thresh,
         )
+        self.features = None
+        self.model.backbone.register_forward_hook(self.get_features_hook)
+        backbone_out_channels = backbone.out_channels
+
+        self.birads_classifier = nn.Sequential(
+            nn.Linear(backbone_out_channels, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, config.num_birads_classes),
+        )
+
+        self.density_classifier = nn.Sequential(
+            nn.Linear(backbone_out_channels, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, config.num_density_classes),
+        )
+
+    def get_features_hook(self, module, input, output):
+        self.features = output
 
     ### BIRADS AND DENSITY CLASSIFICATION
     def forward(self, images, targets=None):
-        return self.model(images, targets)
+        # return self.model(images, targets)
 
+        if self.training and targets:
 
-"""
-class CustomFasterRCNN(nn.Module):
-    def __init__(self, num_classes, pretrained=True):
-        super().__init__()
-        # Load the pretrained model
-        self.model = fasterrcnn_resnet50_fpn(pretrained=pretrained)
+            loss_dict = self.model(images, targets)
 
-        # Replace the classifier with a new one for your num_classes
-        in_features = self.model.roi_heads.box_predictor.cls_score.in_features
-        self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+            feature_map = self.features["0"]
+            global_features = (
+                nn.AdaptiveAvgPool2d((1, 1))(feature_map).squeeze(-1).squeeze(-1)
+            )
+            
+            birads_logits = self.birads_classifier(global_features)
+            density_logits = self.density_classifier(global_features)
 
-        # Optional: Freeze backbone layers
-        # for param in self.model.backbone.parameters():
-        #     param.requires_grad = False
+            # Collect targets from the list of dictionaries and ensure they are 1D
+            birads_targets = (
+                torch.stack([t["birads"] for t in targets]).flatten().long()
+            )
+            density_targets = (
+                torch.stack([t["density"] for t in targets]).flatten().long()
+            )
 
-    def forward(self, images, targets=None):
-        # During training, targets should be passed
-        # During inference, targets should be None
-        return self.model(images, targets)
+            # Compute classification losses
+            birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
+            density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
+            # Add classification losses to the total loss dictionary
+            loss_dict["birads_loss"] = birads_loss
+            loss_dict["density_loss"] = density_loss
 
-"""
+            return loss_dict
+        else:
+            # During inference, perform object detection and classification
+            detections = self.model(images)
+
+            # Extract global features
+            if self.features is None or "0" not in self.features:
+                raise ValueError("Features not collected properly from backbone.")
+
+            feature_map = self.features["0"]
+            global_features = (
+                nn.AdaptiveAvgPool2d((1, 1))(feature_map).squeeze(-1).squeeze(-1)
+            )
+
+            # Classify global features
+            birads_logits = self.birads_classifier(global_features)
+            density_logits = self.density_classifier(global_features)
+
+            # Compute probabilities
+            birads_probs = torch.softmax(birads_logits, dim=-1)
+            density_probs = torch.softmax(density_logits, dim=-1)
+
+            return detections, birads_probs, density_probs
