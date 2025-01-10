@@ -36,6 +36,9 @@ def custom_collate(batch):
     targets = [item[1] for item in batch]
     return images, targets
 
+
+
+
 class MammographyDataset(Dataset):
     def __init__(
         self,
@@ -52,12 +55,24 @@ class MammographyDataset(Dataset):
             [
                 transforms.ToTensor(),
                 transforms.Resize(size=self.size),  # mean / 3
-                #transforms.Normalize(
+                # transforms.Normalize(
                 #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                #),
+                # ),
                 # model will normalize internally
             ]
         )
+
+
+        self.birads_categories = sorted(df.breast_birads.unique())
+        self.birads_idx = {
+            birads: idx for idx, birads in enumerate(self.birads_categories)
+        }
+
+        self.breast_density_categories = sorted(df.breast_density.unique())
+        self.breast_density_idx = {
+            density: idx for idx, density in enumerate(self.breast_density_categories)
+        }
+
         self.categories: List[str] = None
         self.cat2idx: Dict[str, int] = None
 
@@ -114,19 +129,23 @@ class MammographyDataset(Dataset):
 
         if not pd.isna(row["xmin"]):
             boxes = self._scale_bbox(idx)
-            
+
         else:
             boxes = torch.ones((1, 4), dtype=torch.float32)
-            boxes[:,2:] += 0.1 # x
-
+            boxes[:, 2:] += 0.1  # x
 
         labels = torch.tensor(
             [self.cat2idx["-".join(ast.literal_eval(row["finding_categories"]))]],
             dtype=torch.int64,
         )
 
+        birads = torch.tensor([self.birads_idx[row["breast_birads"]]], dtype=torch.int64)
+        density = torch.tensor([self.breast_density_idx[row["breast_density"]]], dtype=torch.int64)
+
         target["boxes"] = boxes
         target["labels"] = labels
+        target["birads"] = birads
+        target["density"] = density
         target["image_id"] = image_id
         target["size"] = (row["height"], row["width"])
         target["category"] = row["finding_categories"]  # for debugging
