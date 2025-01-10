@@ -11,23 +11,9 @@ from sklearn.metrics import (
 import cv2
 
 import torch
+from torchvision.ops import box_iou
 import numpy as np
 from typing import List, Dict, Tuple
-
-
-def compute_iou(box1: torch.Tensor, box2: torch.Tensor) -> float:
-    """Compute IoU between two boxes"""
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
-
-    intersection = max(0, x2 - x1) * max(0, y2 - y1)
-    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
-    union = box1_area + box2_area - intersection
-    return intersection / union if union > 0 else 0
 
 
 def get_best_match(
@@ -45,7 +31,9 @@ def get_best_match(
     scores, indices = torch.sort(pred_score, descending=True)
     pred_box = pred_box[indices]
     pred_label = pred_label[indices]
-    print(scores,indices)
+    print(scores, indices)
+    print("asdlkfjasşdklfj")
+
     # Filter by matching label
     mask = pred_label == true_label
     if not mask.any():
@@ -55,7 +43,7 @@ def get_best_match(
     pred_score = scores[mask]
 
     # Get IoUs for remaining predictions
-    ious = torch.tensor([compute_iou(pb, true_box) for pb in pred_box])
+    ious = torch.tensor([box_iou(pb, true_box) for pb in pred_box])
 
     if len(ious) > 0:
         best_idx = torch.argmax(ious)
@@ -68,35 +56,40 @@ def get_best_match(
     return {"best_iou": 0.0, "best_score": 0.0, "matched": False}
 
 
-def evaluate_single_detection(
-    pred_box, pred_label, true_box, true_label, iou_thresh=0.5
-):
-    """Evaluate single detection against ground truth"""
-    if len(pred_box) == 0:
-        return {"precision": 0, "recall": 0, "f1": 0}
-
-    iou = compute_iou(pred_box[0], true_box[0])
-    correct = (iou >= iou_thresh) and (pred_label[0] == true_label[0])
-
-    return {
-        "precision": float(correct),
-        "recall": float(correct),
-        "f1": float(correct),
-        "iou": float(iou),
-    }
-
-
-def evaluate_classification(pred_probs: torch.Tensor, true_labels: torch.Tensor):
-    """Evaluate classification metrics using sklearn"""
+def evaluate_classification(
+    pred_probs: torch.Tensor, true_labels: torch.Tensor, task: str = "birads"
+) -> Dict[str, float]:
+    """Evaluate classification metrics"""
+    num_classes = 5 if task == "birads" else 4
     pred_labels = pred_probs.argmax(dim=1).cpu().numpy()
     true_labels = true_labels.cpu().numpy()
 
     metrics = {
         "accuracy": accuracy_score(true_labels, pred_labels),
-        "precision": precision_score(true_labels, pred_labels, average="macro"),
-        "recall": recall_score(true_labels, pred_labels, average="macro"),
-        "f1": f1_score(true_labels, pred_labels, average="macro"),
-        "confusion_matrix": confusion_matrix(true_labels, pred_labels),
+        "precision": precision_score(
+            true_labels,
+            pred_labels,
+            average="macro",
+            zero_division=0,
+            labels=range(num_classes),
+        ),
+        "recall": recall_score(
+            true_labels,
+            pred_labels,
+            average="macro",
+            zero_division=0,
+            labels=range(num_classes),
+        ),
+        "f1": f1_score(
+            true_labels,
+            pred_labels,
+            average="macro",
+            zero_division=0,
+            labels=range(num_classes),
+        ),
+        "confusion_matrix": confusion_matrix(
+            true_labels, pred_labels, labels=range(num_classes)
+        ),
     }
 
     return metrics
