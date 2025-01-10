@@ -65,8 +65,14 @@ class Trainer:
                         for t in targets
                     ]  # Process each target dict
 
+                    # for i,j in zip(images, targets):
+                    #    print(type(i),i.shape)
+                    #    for k in j.items():
+                    #        print(k[0],type(k[1]),k[1].shape)
                     loss_dict = self.model(images, targets)
+                    print(loss_dict)
                     losses = sum(loss for loss in loss_dict.values())
+
                     self.optimizer.zero_grad()
                     losses.backward()
                     self.optimizer.step()
@@ -107,8 +113,14 @@ class Trainer:
             for images, targets in val_loader:
                 images = [img.to(self.device) for img in images]
                 targets = [
-                    {k: v.to(self.device) for k, v in t.items()} for t in targets
-                ]
+                    {
+                        k: v.to(self.device)
+                        for k, v in t.items()
+                        if isinstance(v, torch.Tensor)
+                    }
+                    for t in targets
+                ]  # Process each target dict
+
                 loss_dict = self.model(images, targets)
                 losses = sum(loss for loss in loss_dict.values())
                 val_loss += losses.item()
