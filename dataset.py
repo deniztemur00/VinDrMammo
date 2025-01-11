@@ -37,8 +37,6 @@ def custom_collate(batch):
     return images, targets
 
 
-
-
 class MammographyDataset(Dataset):
     def __init__(
         self,
@@ -61,7 +59,6 @@ class MammographyDataset(Dataset):
                 # model will normalize internally
             ]
         )
-
 
         self.birads_categories = sorted(df.breast_birads.unique())
         self.birads_idx = {
@@ -113,14 +110,18 @@ class MammographyDataset(Dataset):
         study_id: str = row["study_id"]
         image_id: str = row["image_id"]
 
-        with zipfile.ZipFile(self.zip_path, "r") as zf:
-            dicom_path: str = f"{self.inter_name}/{study_id}/{image_id}.dicom"
-            with zf.open(dicom_path) as dicom_file:
-                dicom_bytes: io.BytesIO = io.BytesIO(dicom_file.read())
-                png_img = convert_dicom_to_png(dicom_bytes)
+        # with zipfile.ZipFile(self.zip_path, "r") as zf:
+        #    dicom_path: str = f"{self.inter_name}/{study_id}/{image_id}.dicom"
+        #    with zf.open(dicom_path) as dicom_file:
+        #        dicom_bytes: io.BytesIO = io.BytesIO(dicom_file.read())
+        #        png_img = convert_dicom_to_png(dicom_bytes)
+        #
+        #        png_img = self._scale_img(png_img)
+        #        img = self.transform(png_img)
 
-                png_img = self._scale_img(png_img)
-                img = self.transform(png_img)
+        dicom_path = f"{self.inter_name}/{study_id}/{image_id}.dicom"
+        png_img = convert_dicom_to_png(dicom_path)
+        img = self.transform(png_img)
 
         target = {
             "boxes": torch.ones((0, 4), dtype=torch.float32),
@@ -139,8 +140,12 @@ class MammographyDataset(Dataset):
             dtype=torch.int64,
         )
 
-        birads = torch.tensor([self.birads_idx[row["breast_birads"]]], dtype=torch.int64)
-        density = torch.tensor([self.breast_density_idx[row["breast_density"]]], dtype=torch.int64)
+        birads = torch.tensor(
+            [self.birads_idx[row["breast_birads"]]], dtype=torch.int64
+        )
+        density = torch.tensor(
+            [self.breast_density_idx[row["breast_density"]]], dtype=torch.int64
+        )
 
         target["boxes"] = boxes
         target["labels"] = labels
