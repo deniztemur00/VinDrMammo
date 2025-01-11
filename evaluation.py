@@ -6,6 +6,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
+    fbeta_score, # beta > 2 use for results with high recall
     confusion_matrix,
 )
 import cv2
@@ -27,14 +28,14 @@ def get_best_match(
     if len(pred_box) == 0:
         return {"best_iou": 0.0, "best_score": 0.0, "matched": False}
 
-    # Sort by confidence scores
+    
     scores, indices = torch.sort(pred_score, descending=True)
     pred_box = pred_box[indices]
     pred_label = pred_label[indices]
     print(scores, indices)
     print("asdlkfjasşdklfj")
 
-    # Filter by matching label
+   
     mask = pred_label == true_label
     if not mask.any():
         return {"best_iou": 0.0, "best_score": 0.0, "matched": False}
@@ -42,7 +43,7 @@ def get_best_match(
     pred_box = pred_box[mask]
     pred_score = scores[mask]
 
-    # Get IoUs for remaining predictions
+    
     ious = torch.tensor([box_iou(pb, true_box) for pb in pred_box])
 
     if len(ious) > 0:
@@ -57,12 +58,11 @@ def get_best_match(
 
 
 def evaluate_classification(
-    pred_probs: torch.Tensor, true_labels: torch.Tensor, task: str = "birads"
+    pred_labels: np.ndarray, true_labels: np.ndarray, task: str = "birads"
 ) -> Dict[str, float]:
     """Evaluate classification metrics"""
     num_classes = 5 if task == "birads" else 4
-    pred_labels = pred_probs.argmax(dim=1).cpu().numpy()
-    true_labels = true_labels.cpu().numpy()
+
 
     metrics = {
         "accuracy": accuracy_score(true_labels, pred_labels),
@@ -111,7 +111,7 @@ def visualize_detections(
     """
     image = image.copy()
 
-    # Draw true boxes
+    
     for box, label in zip(true_boxes, true_labels):
         color = (0, 255, 0)  # Green for true
         cv2.rectangle(
@@ -127,7 +127,7 @@ def visualize_detections(
             2,
         )
 
-    # Draw predicted boxes
+    
     for box, label in zip(pred_boxes, pred_labels):
         color = (0, 0, 255)  # Red for predicted
         cv2.rectangle(
