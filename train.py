@@ -68,7 +68,6 @@ class Trainer:
                     ]  # Process each target dict
 
                     loss_dict = self.model(images, targets)
-                    print(loss_dict)
                     losses = sum(loss for loss in loss_dict.values())
 
                     self.optimizer.zero_grad()
