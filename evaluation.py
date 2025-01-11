@@ -10,11 +10,9 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 import cv2
-
 import torch
 from torchvision.ops import box_iou
-import numpy as np
-from typing import List, Dict, Tuple
+from typing import Dict
 
 
 def get_best_match(
