@@ -67,7 +67,6 @@ class Trainer:
                         for t in targets
                     ]  # Process each target dict
 
-                    
                     loss_dict = self.model(images, targets)
                     print(loss_dict)
                     losses = sum(loss for loss in loss_dict.values())
@@ -143,7 +142,7 @@ class Trainer:
                 loss = self.eval_loss(birads_probs, density_probs, targets)
 
                 birad_f1 = birad_results["f1"]
-                density_f1 = birad_results["f1"]
+                density_f1 = density_results["f1"]
 
                 val_loss += loss.item() / self.val_loader.batch_size
 
@@ -155,7 +154,6 @@ class Trainer:
                     }
                 )
 
-
         self.val_losses.append(val_loss)
 
         self.model.train()
@@ -166,15 +164,12 @@ class Trainer:
         """Compute detection and classification losses during evaluation"""
         loss_dict = {}
 
-        
         birads_targets = torch.stack([t["birads"] for t in targets]).flatten().long()
         density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
 
-        
         birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
         density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
 
-        
         loss_dict["birads_loss"] = birads_loss
         loss_dict["density_loss"] = density_loss
 
