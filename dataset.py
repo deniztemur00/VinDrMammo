@@ -132,7 +132,7 @@ class MammographyDataset(Dataset):
 
         else:
             boxes = torch.ones((1, 4), dtype=torch.float32)
-            boxes[:, 2:] += 0.1  # x
+            boxes[:, 2:] += 0.1  # xmax, ymax should be greater than xmin, ymin or error
 
         labels = torch.tensor(
             [self.cat2idx["-".join(ast.literal_eval(row["finding_categories"]))]],
