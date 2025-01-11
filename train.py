@@ -67,10 +67,7 @@ class Trainer:
                         for t in targets
                     ]  # Process each target dict
 
-                    # for i,j in zip(images, targets):
-                    #    print(type(i),i.shape)
-                    #    for k in j.items():
-                    #        print(k[0],type(k[1]),k[1].shape)
+                    
                     loss_dict = self.model(images, targets)
                     print(loss_dict)
                     losses = sum(loss for loss in loss_dict.values())
@@ -84,9 +81,9 @@ class Trainer:
                     train_loader.set_postfix(
                         {"Loss": f"{current_loss:.4f}", "LR": f"{lr:.6f}"}
                     )
-                train_loss /= len(self.train_loader)
+                train_loss /= self.train_loader.batch_size
                 self.train_losses.append(train_loss)
-                if self.val_loader is not None:
+                if self.val_loader:
                     val_loss = self.validate()
                     if val_loss < best_loss:
                         best_loss = val_loss
@@ -107,6 +104,7 @@ class Trainer:
             self.save_loss_plot()
             return
 
+    @torch.no_grad()
     def validate(self):
         self.model.eval()
         val_loss = 0.0
@@ -137,37 +135,50 @@ class Trainer:
                     torch.stack([t["density"] for t in targets]).flatten().cpu().numpy()
                 )
 
-                
-
-                birad_results = evaluate_classification(
-                    birads_probs, torch.stack(birad_targets)
-                )
+                birad_results = evaluate_classification(birad_preds, birad_targets)
                 density_results = evaluate_classification(
-                    density_probs, torch.stack(density_targets)
+                    density_preds, density_targets, task="density"
                 )
 
-                
-                val_loader.set_postfix(birad_results)
+                loss = self.eval_loss(birads_probs, density_probs, targets)
+
+                birad_f1 = birad_results["f1"]
+                density_f1 = birad_results["f1"]
+
+                val_loss += loss.item() / self.val_loader.batch_size
+
+                val_loader.set_postfix(
+                    {
+                        "Loss": f"{loss:.4f}",
+                        "BIRADS_F1": f"{birad_f1:.4f}",
+                        "Density_F1": f"{density_f1:.4f}",
+                    }
+                )
+
+
+        self.val_losses.append(val_loss)
+
+        self.model.train()
 
         return val_loss
 
-    def eval_loss(self, detections, birads_logits, density_logits, targets):
+    def eval_loss(self, birads_logits, density_logits, targets) -> torch.Tensor:
         """Compute detection and classification losses during evaluation"""
         loss_dict = {}
 
-        # Get classification targets
+        
         birads_targets = torch.stack([t["birads"] for t in targets]).flatten().long()
         density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
 
-        # Compute classification losses
+        
         birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
         density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
 
-        # Add to loss dict
+        
         loss_dict["birads_loss"] = birads_loss
         loss_dict["density_loss"] = density_loss
 
-        return loss_dict
+        return sum(loss for loss in loss_dict.values())
 
     def save(self, filename):
         torch.save(self.model.state_dict(), filename)
