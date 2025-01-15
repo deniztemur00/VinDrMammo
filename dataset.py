@@ -122,6 +122,7 @@ class MammographyDataset(Dataset):
         dicom_path = f"{self.inter_name}/{study_id}/{image_id}.dicom"
         png_img = convert_dicom_to_png(dicom_path)
         img = self.transform(png_img)
+        img = img.astype(np.float32)
 
         target = {
             "boxes": torch.ones((0, 4), dtype=torch.float32),
