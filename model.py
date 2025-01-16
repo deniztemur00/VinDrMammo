@@ -17,14 +17,20 @@ class FasterRCNNConfig:
     num_classes: int = 35
     num_birads_classes: int = 5
     num_density_classes: int = 4
-    backbone_name: str = "resnet50"  # resnet101
+    backbone_name: str = "resnet101"  # resnet101
     pretrained_backbone: bool = True
     min_size: int = 800
     max_size: int = 1333
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
-    anchor_sizes: Tuple[Tuple[int]] = ((16,), (32,), (64,), (128,), (256,))
-    aspect_ratios: Tuple[Tuple[float]] = ((0.5, 1.0, 2.0),) * 5
+    anchor_sizes: Tuple[Tuple[int]] = (
+        (8,),
+        (16,),
+        (32,),
+        (64,),
+        (128,),
+    )
+    aspect_ratios: Tuple[Tuple[float]] = ((0.25, 0.5, 1.0, 2.0, 4.0),) * 5
     rpn_fg_iou_thresh: float = 0.7
     rpn_bg_iou_thresh: float = 0.3
     box_fg_iou_thresh: float = 0.5
@@ -79,7 +85,6 @@ class CustomFasterRCNN(nn.Module):
     def get_features_hook(self, module, input, output):
         self.features = output
 
-    ### BIRADS AND DENSITY CLASSIFICATION
     def forward(self, images, targets=None):
         # return self.model(images, targets)
 
@@ -91,7 +96,7 @@ class CustomFasterRCNN(nn.Module):
             global_features = (
                 nn.AdaptiveAvgPool2d((1, 1))(feature_map).squeeze(-1).squeeze(-1)
             )
-            
+
             birads_logits = self.birads_classifier(global_features)
             density_logits = self.density_classifier(global_features)
 
@@ -107,15 +112,13 @@ class CustomFasterRCNN(nn.Module):
             birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
             density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
             # Add classification losses to the total loss dictionary
-            loss_dict["birads_loss"] = birads_loss
-            loss_dict["density_loss"] = density_loss
+            loss_dict["birads_loss"] = birads_loss * 0.75
+            loss_dict["density_loss"] = density_loss * 0.50
 
             return loss_dict
         else:
-            # During inference, perform object detection and classification
             detections = self.model(images)
 
-            # Extract global features
             if self.features is None or "0" not in self.features:
                 raise ValueError("Features not collected properly from backbone.")
 
