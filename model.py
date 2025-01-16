@@ -112,8 +112,8 @@ class CustomFasterRCNN(nn.Module):
             birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
             density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
             # Add classification losses to the total loss dictionary
-            loss_dict["birads_loss"] = birads_loss * 0.75
-            loss_dict["density_loss"] = density_loss * 0.50
+            loss_dict["birads_loss"] = birads_loss
+            loss_dict["density_loss"] = density_loss
 
             return loss_dict
         else:
