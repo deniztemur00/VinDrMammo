@@ -10,8 +10,6 @@ import torch.nn.functional as F
 from typing import Dict
 
 
-
-
 class MammographyInference:
     def __init__(self, model_path: str, device: str = None):
         if device is None:
@@ -53,7 +51,11 @@ class MammographyInference:
 
     @torch.no_grad()
     def predict(
-        self, dicom_path: str, confidence_threshold: float = 0.5, visualize: str = False
+        self,
+        dicom_path: str,
+        confidence_threshold: float = 0.5,
+        top_k: int = 1,
+        visualize: str = False,
     ) -> Dict:
         """
         Perform inference on a single DICOM image
@@ -76,14 +78,16 @@ class MammographyInference:
         detections, birads_probs, density_probs = self.model(img)
 
         if len(detections[0]["boxes"]) > 0:
-            keep = detections[0]["scores"] > confidence_threshold
-            boxes = detections[0]["boxes"][keep].cpu()
-            scores = detections[0]["scores"][keep].cpu()
-            labels = detections[0]["labels"][keep].cpu()
+            top_k_scores, top_k_indices = torch.topk(detections[0]["scores"], k=top_k)
+
+            top_boxes = detections[0]["boxes"][top_k_indices]
+            top_scores = detections[0]["scores"][top_k_indices]
+            top_labels = detections[0]["labels"][top_k_indices]
+
         else:
-            boxes = torch.empty(0, 4)
-            scores = torch.empty(0)
-            labels = torch.empty(0)
+            top_boxes = torch.empty(0, 4)
+            top_scores = torch.empty(0)
+            top_labels = torch.empty(0)
 
         birads_probs = F.softmax(birads_probs, dim=-1).cpu()
         density_probs = F.softmax(density_probs, dim=-1).cpu()
@@ -91,16 +95,16 @@ class MammographyInference:
         if visualize:
             self._visualize(
                 img[0].cpu().numpy().transpose(1, 2, 0),
-                boxes,
-                labels,
+                top_boxes,
+                top_labels,
                 birads_probs,
                 density_probs,
             )
 
         return {
-            "boxes": boxes.numpy(),
-            "labels": labels.numpy(),
-            "scores": scores.numpy(),
+            "boxes": top_boxes.numpy(),
+            "labels": top_labels.numpy(),
+            "scores": top_scores.numpy(),
             "birads": birads_probs.numpy(),
             "density": density_probs.numpy(),
         }
