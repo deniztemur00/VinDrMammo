@@ -89,13 +89,17 @@ class Trainer:
                     self.optimizer.step()
                     self.scheduler.step()
 
-                    current_loss = losses.item() / self.train_loader.batch_size
+                    current_loss = losses.item()
                     epoch_loss += current_loss
                     lr = self.scheduler.get_last_lr()[0]
-                    self.train_losses.append(current_loss)
+
                     train_loader.set_postfix(
-                        {"Loss": f"{epoch_loss:.4f}", "LR": f"{lr:.4f}"}
+                        {"Loss": f"{current_loss:.4f}", "LR": f"{lr:.4f}"}
                     )
+
+                epoch_loss /= len(self.train_loader)
+                self.train_losses.append(current_loss)
+
                 if self.val_loader:
                     val_loss = self.validate()
                     if val_loss < best_loss:
@@ -158,21 +162,52 @@ class Trainer:
                 birad_f1 = birad_results["f1"]
                 density_f1 = density_results["f1"]
 
-                current_loss = loss.item() / self.val_loader.batch_size
+                current_loss = loss.item()
                 val_loss += current_loss
-                self.val_losses.append(val_loss)
 
                 val_loader.set_postfix(
                     {
-                        "Loss": f"{val_loss:.4f}",
+                        "Loss": f"{current_loss:.4f}",
                         "BIRADS_F1": f"{birad_f1:.4f}",
                         "Density_F1": f"{density_f1:.4f}",
                     }
                 )
 
+        val_loss /= len(self.val_loader)
+        self.val_losses.append(current_loss)
+
         self.model.train()
 
         return val_loss
+
+    def get_k_best_scores(self, detections, targets, k: int = 3):
+        detection_loss = 0
+        cls_loss = 0
+
+        for det, target in zip(detections, targets):
+            if len(det["boxes"]) == 0:
+                continue
+
+            scores = det["scores"]
+
+            if len(scores) > k:
+                top_k_scores, top_k_indices = torch.topk(scores, k)
+                k_boxes = det["boxes"][top_k_indices]
+                k_labes = det["labels"][top_k_indices]
+
+            else:
+                k_boxes = det["boxes"]
+                k_labes = det["labels"]
+
+            target_boxes = target["boxes"]
+            target_labels = target["labels"]
+
+            if len(target_boxes) > 0:
+                detection_loss += self.box_loss(k_boxes, target_boxes)
+
+                cls_loss += self.detection_cls_loss(k_labes, target_labels)
+
+        return detection_loss, cls_loss
 
     def eval_loss(
         self, detections, birads_logits, density_logits, targets
@@ -183,17 +218,21 @@ class Trainer:
         birads_targets = torch.stack([t["birads"] for t in targets]).flatten().long()
         density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
 
-        detection_loss = self.box_loss(detections["boxes"], targets["boxes"])
-        classification_loss = self.detection_cls_loss(
-            detections["labels"], targets["labels"]
-        )
+        #        predicted_boxes = torch.stack([det["boxes"] for det in detections])
+        #        target_boxes = torch.stack([t["boxes"] for t in targets])
+        #        detection_loss = self.box_loss(predicted_boxes, target_boxes)
+        #
+        #        predicted_cls = torch.stack([det["labels"] for det in detections])
+        #        target_cls = torch.stack([t["labels"] for t in targets])
+        #        cls_loss = self.detection_cls_loss(predicted_cls, target_cls)
+
         birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
         density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
 
-        loss_dict["detection_loss"] = detection_loss
-        loss_dict["cls_loss"] = classification_loss
-        loss_dict["birads_loss"] = birads_loss * 0.75
-        loss_dict["density_loss"] = density_loss * 0.50
+        # loss_dict["detection_loss"] = detection_loss
+        # loss_dict["cls_loss"] = cls_loss
+        loss_dict["birads_loss"] = birads_loss
+        loss_dict["density_loss"] = density_loss
 
         return sum(loss for loss in loss_dict.values())
 
