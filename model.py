@@ -1,15 +1,13 @@
 import torch
 from torch import nn
-from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN
+from torchvision.models.detection import FasterRCNN
 
 # from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from dataclasses import dataclass
 from typing import Tuple
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 from torchvision.models.detection.anchor_utils import AnchorGenerator
-from torchvision.models import ResNet50_Weights
-
-from torchvision.models.detection.image_list import ImageList
+from torchvision.models import ResNet50_Weights, ResNet101_Weights
 
 
 @dataclass
@@ -31,7 +29,7 @@ class FasterRCNNConfig:
         (128,),
     )
     aspect_ratios: Tuple[Tuple[float]] = ((0.25, 0.5, 1.0, 2.0, 4.0),) * 5
-    rpn_fg_iou_thresh: float = 0.7
+    rpn_fg_iou_thresh: float = 0.6  # 0.7
     rpn_bg_iou_thresh: float = 0.3
     box_fg_iou_thresh: float = 0.5
     box_bg_iou_thresh: float = 0.5
@@ -39,18 +37,16 @@ class FasterRCNNConfig:
 
 class CustomFasterRCNN(nn.Module):
     def __init__(self, config: FasterRCNNConfig):
-        super(CustomFasterRCNN, self).__init__()
-        # Define the anchor generator with custom sizes and aspect ratios
+        super().__init__()
+
         anchor_generator = AnchorGenerator(
             sizes=config.anchor_sizes, aspect_ratios=config.aspect_ratios
         )
 
-        # Load the backbone
         backbone = resnet_fpn_backbone(
-            config.backbone_name, config.pretrained_backbone, weights=ResNet50_Weights
+            config.backbone_name, config.pretrained_backbone, weights=ResNet101_Weights
         )
 
-        # Create the Faster R-CNN model with the specified configuration
         self.model = FasterRCNN(
             backbone,
             num_classes=config.num_classes,
