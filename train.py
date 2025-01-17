@@ -94,11 +94,19 @@ class Trainer:
                     lr = self.scheduler.get_last_lr()[0]
 
                     train_loader.set_postfix(
-                        {"Loss": f"{current_loss:.4f}", "LR": f"{lr:.4f}"}
+                        {
+                            "cls_loss": f"{loss_dict['loss_classifier']:.4f}",
+                            "box_loss": f"{loss_dict['loss_box_reg']:.4f}",
+                            "objectness_loss": f"{loss_dict['loss_objectness']:.4f}",
+                            "rpn_box_loss": f"{loss_dict['loss_rpn_box_reg']:.4f}",
+                            "birads_loss": f"{loss_dict['birads_loss']:.4f}",
+                            "density_loss": f"{loss_dict['density_loss']:.4f}",
+                            "LR": f"{lr:.4f}",
+                        }
                     )
 
                 epoch_loss /= len(self.train_loader)
-                self.train_losses.append(current_loss)
+                self.train_losses.append(epoch_loss)
 
                 if self.val_loader:
                     val_loss = self.validate()
@@ -143,11 +151,13 @@ class Trainer:
                 ]  # Process each target dict
 
                 detections, birads_probs, density_probs = self.model(images)
-                birad_preds.extend(birads_probs.argmax(dim=1).cpu().numpy())
+
+                birad_preds.extend(birads_probs.argmax(dim=-1).cpu().numpy())
                 birad_targets.extend(
                     torch.stack([t["birads"] for t in targets]).flatten().cpu().numpy()
                 )
-                density_preds.extend(density_probs.argmax(dim=1).cpu().numpy())
+
+                density_preds.extend(density_probs.argmax(dim=-1).cpu().numpy())
                 density_targets.extend(
                     torch.stack([t["density"] for t in targets]).flatten().cpu().numpy()
                 )
@@ -157,7 +167,9 @@ class Trainer:
                     density_preds, density_targets, task="density"
                 )
 
-                loss = self.eval_loss(detections, birads_probs, density_probs, targets)
+                loss, loss_dict = self.eval_loss(
+                    detections, birads_probs, density_probs, targets
+                )
 
                 birad_f1 = birad_results["f1"]
                 density_f1 = density_results["f1"]
@@ -168,13 +180,17 @@ class Trainer:
                 val_loader.set_postfix(
                     {
                         "Loss": f"{current_loss:.4f}",
-                        "BIRADS_F1": f"{birad_f1:.4f}",
-                        "Density_F1": f"{density_f1:.4f}",
+                        "bbox_l1": f"{loss_dict['detection_loss']:.4f}",
+                        "bbox_cls": f"{loss_dict['cls_loss']:.4f}",
+                        "birads": f"{loss_dict['birads_loss']:.4f}",
+                        "density": f"{loss_dict['density_loss']:.4f}",
+                        "BIRADS_f1": f"{birad_f1:.4f}",
+                        "Density_f1": f"{density_f1:.4f}",
                     }
                 )
 
         val_loss /= len(self.val_loader)
-        self.val_losses.append(current_loss)
+        self.val_losses.append(val_loss)
 
         self.model.train()
 
@@ -202,6 +218,10 @@ class Trainer:
             target_boxes = target["boxes"]
             target_labels = target["labels"]
 
+            print(k_boxes, target_boxes)
+            print("*" * 50)
+            print(k_labes, target_labels)
+
             if len(target_boxes) > 0:
                 detection_loss += self.box_loss(k_boxes, target_boxes)
 
@@ -214,27 +234,20 @@ class Trainer:
     ) -> torch.Tensor:
         """Compute detection and classification losses during evaluation"""
         loss_dict = {}
-
         birads_targets = torch.stack([t["birads"] for t in targets]).flatten().long()
         density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
 
-        #        predicted_boxes = torch.stack([det["boxes"] for det in detections])
-        #        target_boxes = torch.stack([t["boxes"] for t in targets])
-        #        detection_loss = self.box_loss(predicted_boxes, target_boxes)
-        #
-        #        predicted_cls = torch.stack([det["labels"] for det in detections])
-        #        target_cls = torch.stack([t["labels"] for t in targets])
-        #        cls_loss = self.detection_cls_loss(predicted_cls, target_cls)
+        detection_loss, cls_loss = self.get_k_best_scores(detections, targets)
 
         birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
         density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
 
-        # loss_dict["detection_loss"] = detection_loss
-        # loss_dict["cls_loss"] = cls_loss
+        loss_dict["detection_loss"] = detection_loss
+        loss_dict["cls_loss"] = cls_loss
         loss_dict["birads_loss"] = birads_loss
         loss_dict["density_loss"] = density_loss
 
-        return sum(loss for loss in loss_dict.values())
+        return sum(loss for loss in loss_dict.values()), loss_dict
 
     def save(self, filename):
         torch.save(self.model.state_dict(), filename)
