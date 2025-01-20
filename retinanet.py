@@ -84,8 +84,11 @@ class CustomRetinaNet(nn.Module):
             birads_logits = self.birads_classifier(self.backbone_features)
             density_logits = self.density_classifier(self.backbone_features)
 
-            birads_loss = self.birads_loss(birads_logits, targets["birads"])
-            density_loss = self.density_loss(density_logits, targets["density"])
+            density_targets = torch.stack([t["density"] for t in targets]).flatten()
+            birads_targets = torch.stack([t["birads"] for t in targets]).flatten()
+
+            birads_loss = self.birads_loss(birads_logits, birads_targets)
+            density_loss = self.density_loss(density_logits, density_targets)
 
             losses.update({"birads_loss": birads_loss, "density_loss": density_loss})
 
