@@ -22,8 +22,11 @@ class Trainer:
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
         self.box_loss = nn.SmoothL1Loss(
             beta=1.0 / 9.0
-        )  # beta=1/9 as per Faster R-CNN paper
+        )  # beta=1/9 as per the original paper
+
         self.detection_cls_loss = nn.CrossEntropyLoss()
+        self.birads_loss = nn.CrossEntropyLoss()
+        self.density_loss = nn.CrossEntropyLoss()
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -86,6 +89,8 @@ class Trainer:
                     self.optimizer.zero_grad()
                     losses.backward()
 
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+
                     self.optimizer.step()
                     self.scheduler.step()
 
@@ -95,10 +100,10 @@ class Trainer:
 
                     train_loader.set_postfix(
                         {
-                            "cls_loss": f"{loss_dict['loss_classifier']:.4f}",
-                            "box_loss": f"{loss_dict['loss_box_reg']:.4f}",
-                            "objectness_loss": f"{loss_dict['loss_objectness']:.4f}",
-                            "rpn_box_loss": f"{loss_dict['loss_rpn_box_reg']:.4f}",
+                            "cls_loss": f"{loss_dict['classification']:.4f}",
+                            "box_loss": f"{loss_dict['bbox_regression']:.4f}",
+                            # "objectness_loss": f"{loss_dict['loss_objectness']:.4f}",
+                            # "rpn_box_loss": f"{loss_dict['loss_rpn_box_reg']:.4f}",
                             "birads_loss": f"{loss_dict['birads_loss']:.4f}",
                             "density_loss": f"{loss_dict['density_loss']:.4f}",
                             "LR": f"{lr:.4f}",
@@ -179,13 +184,13 @@ class Trainer:
 
                 val_loader.set_postfix(
                     {
-                        "Loss": f"{current_loss:.4f}",
+                        "total_loss": f"{current_loss:.4f}",
                         "bbox_l1": f"{loss_dict['detection_loss']:.4f}",
                         "bbox_cls": f"{loss_dict['cls_loss']:.4f}",
-                        "birads": f"{loss_dict['birads_loss']:.4f}",
-                        "density": f"{loss_dict['density_loss']:.4f}",
-                        "BIRADS_f1": f"{birad_f1:.4f}",
-                        "Density_f1": f"{density_f1:.4f}",
+                        "birads_loss": f"{loss_dict['birads_loss']:.4f}",
+                        "density_loss": f"{loss_dict['density_loss']:.4f}",
+                        "birads_f1": f"{birad_f1:.4f}",
+                        "density_f1": f"{density_f1:.4f}",
                     }
                 )
 
@@ -197,55 +202,70 @@ class Trainer:
         return val_loss
 
     def get_k_best_scores(self, detections, targets, k: int = 3):
-        detection_loss = 0
-        cls_loss = 0
+        detection_loss = torch.tensor(0.0, device=self.device)
+        cls_loss = torch.tensor(0.0, device=self.device)
 
         for det, target in zip(detections, targets):
             if len(det["boxes"]) == 0:
                 continue
 
             scores = det["scores"]
-
             if len(scores) > k:
                 top_k_scores, top_k_indices = torch.topk(scores, k)
                 k_boxes = det["boxes"][top_k_indices]
-                k_labes = det["labels"][top_k_indices]
-
+                k_labels = det["labels"][top_k_indices].float()  # Convert to float
             else:
                 k_boxes = det["boxes"]
-                k_labes = det["labels"]
+                k_labels = det["labels"].float()  # Convert to float
 
             target_boxes = target["boxes"]
-            target_labels = target["labels"]
-
-            print(k_boxes, target_boxes)
-            print("*" * 50)
-            print(k_labes, target_labels)
+            target_labels = target["labels"].float()  # Convert to float
 
             if len(target_boxes) > 0:
-                detection_loss += self.box_loss(k_boxes, target_boxes)
+                try:
+                    detection_loss += self.box_loss(
+                        k_boxes, target_boxes[: len(k_boxes)]
+                    )
+                    cls_loss += self.detection_cls_loss(
+                        k_labels.unsqueeze(0),
+                        target_labels[: len(k_labels)].unsqueeze(0),
+                    )
+                except RuntimeError as e:
+                    print(f"Error in loss calculation: {str(e)}")
+                    print(f"k_labels shape: {k_labels.shape}")
+                    print(f"target_labels shape: {target_labels.shape}")
+                    continue
 
-                cls_loss += self.detection_cls_loss(k_labes, target_labels)
+        batch_size = len(detections)
+        if batch_size > 0:
+            detection_loss = detection_loss / batch_size
+            cls_loss = cls_loss / batch_size
 
         return detection_loss, cls_loss
 
-    def eval_loss(
-        self, detections, birads_logits, density_logits, targets
-    ) -> torch.Tensor:
-        """Compute detection and classification losses during evaluation"""
+    def eval_loss(self, detections, birads_logits, density_logits, targets):
         loss_dict = {}
+
+        # Get targets and convert to correct type
         birads_targets = torch.stack([t["birads"] for t in targets]).flatten().long()
         density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
 
+        # Calculate detection losses
         detection_loss, cls_loss = self.get_k_best_scores(detections, targets)
 
-        birads_loss = nn.CrossEntropyLoss()(birads_logits, birads_targets)
-        density_loss = nn.CrossEntropyLoss()(density_logits, density_targets)
+        # Calculate classification losses
+        birads_loss = self.birads_loss(birads_logits, birads_targets)
+        density_loss = self.density_loss(density_logits, density_targets)
 
-        loss_dict["detection_loss"] = detection_loss
-        loss_dict["cls_loss"] = cls_loss
-        loss_dict["birads_loss"] = birads_loss
-        loss_dict["density_loss"] = density_loss
+        # Update loss dictionary
+        loss_dict.update(
+            {
+                "detection_loss": detection_loss * 1.0,
+                "cls_loss": cls_loss * 0.1,
+                "birads_loss": birads_loss * 0.5,
+                "density_loss": density_loss * 0.5,
+            }
+        )
 
         return sum(loss for loss in loss_dict.values()), loss_dict
 
