@@ -60,6 +60,9 @@ class CustomRetinaNet(nn.Module):
             nn.Linear(512, config.num_density_classes),
         )
 
+        self.birads_loss = nn.CrossEntropyLoss()
+        self.density_loss = nn.CrossEntropyLoss()
+
         self.backbone_features: Optional[OrderedDict] = None
         self.hook_handles = []
 
@@ -81,7 +84,12 @@ class CustomRetinaNet(nn.Module):
             birads_logits = self.birads_classifier(self.backbone_features)
             density_logits = self.density_classifier(self.backbone_features)
 
-            return losses, birads_logits, density_logits
+            birads_loss = self.birads_loss(birads_logits, targets["birads"])
+            density_loss = self.density_loss(density_logits, targets["density"])
+
+            losses.update({"birads_loss": birads_loss, "density_loss": density_loss})
+
+            return losses
         else:
             detections = self.model(images)
             birads_logits = self.birads_classifier(self.backbone_features)
