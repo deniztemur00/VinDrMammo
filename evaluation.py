@@ -63,7 +63,7 @@ def evaluate_classification(
 
 
     metrics = {
-        "accuracy": accuracy_score(true_labels, pred_labels),
+        #"accuracy": accuracy_score(true_labels, pred_labels),
         "precision": precision_score(
             true_labels,
             pred_labels,
