@@ -150,14 +150,14 @@ class Trainer:
                     for t in targets
                 ]  # Process each target dict
 
-                detections, birads_probs, density_probs = self.model(images)
+                detections, birads_logits, density_logits = self.model(images)
 
-                birad_preds.extend(birads_probs.argmax(dim=-1).cpu().numpy())
+                birad_preds.extend(birads_logits.argmax(dim=-1).cpu().numpy())
                 birad_targets.extend(
                     torch.stack([t["birads"] for t in targets]).flatten().cpu().numpy()
                 )
 
-                density_preds.extend(density_probs.argmax(dim=-1).cpu().numpy())
+                density_preds.extend(density_logits.argmax(dim=-1).cpu().numpy())
                 density_targets.extend(
                     torch.stack([t["density"] for t in targets]).flatten().cpu().numpy()
                 )
@@ -168,7 +168,7 @@ class Trainer:
                 )
 
                 loss, loss_dict = self.eval_loss(
-                    detections, birads_probs, density_probs, targets
+                    detections, birads_logits, density_logits, targets
                 )
 
                 birad_f1 = birad_results["f1"]
