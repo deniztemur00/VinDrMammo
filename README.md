@@ -1,21 +1,31 @@
 # VinDr-Mammo Object Detection
 
-Deep learning project for mammography analysis using the VinDr-Mammo dataset with Faster R-CNN.
+Deep learning project for automated detection of breast abnormalities in mammogram images using the VinDr-Mammo dataset.
 
-## Overview
+## Key Features
 
-This project implements object detection for breast abnormalities in mammogram images using PyTorch and Faster R-CNN architecture.
+- Faster R-CNN and RetinaNet architecture for multi-class object detection
+- Balanced dataset creation through stratified sampling based on:
+  - BI-RADS classifications (1-5)
+  - Breast density categories (A-D) 
+  - Finding categories (Mass, Calcification, Asymmetry, etc.)
+- Data pruning to address class imbalance:
+  - Reduced overrepresented "No Finding" class from 18k to 2.5k samples
+  - Preserved rare finding combinations across train/test splits
+
 
 
 ## Setup
-
+### Clone the repository
 ```bash
-# Clone repository
 git clone https://github.com/yourusername/vindr-mammo.git
-cd vindr-mammo
+```
 
-# Install dependencies
+### Install dependencies
+```bash
 pip install -r requirements.txt
+```
 
-# Download dataset
-# Place vindr-mammo.zip in project root
+## Results
+
+TODO: Add results as a notebook
