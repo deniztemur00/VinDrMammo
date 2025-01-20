@@ -4,7 +4,7 @@ import torch
 from torchvision import transforms
 import numpy as np
 from utils.visualize import convert_dicom_to_png
-from model import CustomFasterRCNN, FasterRCNNConfig
+from fasterrcnn import CustomFasterRCNN, FasterRCNNConfig
 from matplotlib import pyplot as plt
 import torch.nn.functional as F
 from typing import Dict
@@ -78,7 +78,7 @@ class MammographyInference:
         detections, birads_probs, density_probs = self.model(img)
 
         if len(detections[0]["boxes"]) > 0:
-            top_k_scores, top_k_indices = torch.topk(detections[0]["scores"], k=top_k)
+            _, top_k_indices = torch.topk(detections[0]["scores"], k=top_k)
 
             top_boxes = detections[0]["boxes"][top_k_indices]
             top_scores = detections[0]["scores"][top_k_indices]
