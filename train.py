@@ -1,7 +1,7 @@
 import os
 import torch
 from torch import nn
-from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR, LinearLR
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from evaluation import evaluate_classification
@@ -38,11 +38,17 @@ class Trainer:
         os.makedirs(self.save_dir, exist_ok=True)
         self.model.to(self.device)
 
-        self.scheduler = OneCycleLR(
+        # self.scheduler = OneCycleLR(
+        #    self.optimizer,
+        #    max_lr=4e-3,
+        #    epochs=self.epochs,
+        #    steps_per_epoch=len(self.train_loader),
+        # )
+
+        self.scheduler = CosineAnnealingLR(
             self.optimizer,
-            max_lr=1e-2,
-            epochs=self.epochs,
-            steps_per_epoch=len(self.train_loader),
+            T_max=epochs * len(train_loader),
+            eta_min=1e-6,
         )
 
         self.name = name if name else ""
@@ -64,6 +70,7 @@ class Trainer:
 
     def train(self):
         best_loss = float("inf")
+        torch.autograd.set_detect_anomaly(True)
         try:
             for epoch in range(self.epochs):
                 self.model.train()
@@ -89,7 +96,9 @@ class Trainer:
                     self.optimizer.zero_grad()
                     losses.backward()
 
-                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.3)
+
+                    nn.utils.clip_grad_value_(self.model.parameters(), clip_value=0.5)
 
                     self.optimizer.step()
                     self.scheduler.step()
@@ -106,7 +115,7 @@ class Trainer:
                             # "rpn_box_loss": f"{loss_dict['loss_rpn_box_reg']:.4f}",
                             "birads_loss": f"{loss_dict['birads_loss']:.4f}",
                             "density_loss": f"{loss_dict['density_loss']:.4f}",
-                            "LR": f"{lr:.4f}",
+                            "LR": f"{lr:.5f}",
                         }
                     )
 
