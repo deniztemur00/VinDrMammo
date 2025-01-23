@@ -43,6 +43,7 @@ class CustomRetinaNet(nn.Module):
         )
 
         self.birads_classifier = nn.Sequential(
+            nn.BatchNorm2d(256),
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
             nn.Linear(256, 512),
@@ -52,6 +53,7 @@ class CustomRetinaNet(nn.Module):
         )
 
         self.density_classifier = nn.Sequential(
+            nn.BatchNorm2d(256),
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
             nn.Linear(256, 512),
@@ -87,8 +89,8 @@ class CustomRetinaNet(nn.Module):
             density_targets = torch.stack([t["density"] for t in targets]).flatten()
             birads_targets = torch.stack([t["birads"] for t in targets]).flatten()
 
-            birads_loss = self.birads_loss(birads_logits, birads_targets)
-            density_loss = self.density_loss(density_logits, density_targets)
+            birads_loss = self.birads_loss(birads_logits, birads_targets) * 0.1
+            density_loss = self.density_loss(density_logits, density_targets) * 0.1
 
             losses.update({"birads_loss": birads_loss, "density_loss": density_loss})
 
