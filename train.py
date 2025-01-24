@@ -152,6 +152,7 @@ class Trainer:
         birad_targets = []
         density_preds = []
         density_targets = []
+        batch_maps = []
 
         with torch.no_grad():
             val_loader = tqdm(self.val_loader, desc="Validation")
@@ -200,6 +201,7 @@ class Trainer:
                 current_map = map_results["map"].item()
                 current_map_50 = map_results["map_50"].item()
 
+                batch_maps.append(current_map)
                 current_loss = loss.item()
                 val_loss += current_loss
 
@@ -224,6 +226,7 @@ class Trainer:
         self.birad_targets = birad_targets
         self.density_preds = density_preds
         self.density_targets = density_targets
+        self.batch_maps = batch_maps
 
         return val_loss
 
