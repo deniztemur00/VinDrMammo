@@ -5,6 +5,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR, LinearLR
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from evaluation import evaluate_classification
+from torchmetrics.detection import MeanAveragePrecision
 
 
 class Trainer:
@@ -24,6 +25,7 @@ class Trainer:
             beta=1.0 / 9.0
         )  # beta=1/9 as per the original paper
 
+        self.map_metric = MeanAveragePrecision(class_metrics=True)
         self.detection_cls_loss = nn.CrossEntropyLoss()
         self.birads_loss = nn.CrossEntropyLoss()
         self.density_loss = nn.CrossEntropyLoss()
@@ -188,6 +190,16 @@ class Trainer:
                 birad_f1 = birad_results["f1"]
                 density_f1 = density_results["f1"]
 
+                detections = self.sanitize_detections(detections)
+                self.map_metric.update(
+                    preds=detections,
+                    target=targets,
+                )
+                map_results = self.map_metric.compute()
+
+                current_map = map_results["map"].item()
+                current_map_50 = map_results["map_50"].item()
+
                 current_loss = loss.item()
                 val_loss += current_loss
 
@@ -195,7 +207,8 @@ class Trainer:
                     {
                         "total_loss": f"{current_loss:.4f}",
                         "bbox_l1": f"{loss_dict['detection_loss']:.4f}",
-                        "bbox_cls": f"{loss_dict['cls_loss']:.4f}",
+                        "mAP": f"{current_map:.4f}",
+                        "mAP@50": f"{current_map_50:.4f}",
                         "birads_loss": f"{loss_dict['birads_loss']:.4f}",
                         "density_loss": f"{loss_dict['density_loss']:.4f}",
                         "birads_f1": f"{birad_f1:.4f}",
@@ -207,12 +220,26 @@ class Trainer:
         self.val_losses.append(val_loss)
 
         self.model.train()
+        self.birad_preds = birad_preds
+        self.birad_targets = birad_targets
+        self.density_preds = density_preds
+        self.density_targets = density_targets
 
         return val_loss
 
+    def sanitize_detections(self, detections):
+        for det in detections:
+            boxes = det["boxes"]
+            widths = boxes[:, 2] - boxes[:, 0]
+            heights = boxes[:, 3] - boxes[:, 1]
+            valid = (widths > 0) & (heights > 0) & (det["scores"] > 0.05)
+            det["boxes"] = boxes[valid]
+            det["scores"] = det["scores"][valid]
+            det["labels"] = det["labels"][valid]
+        return detections
+
     def get_k_best_scores(self, detections, targets, k: int = 3):
         detection_loss = torch.tensor(0.0, device=self.device)
-        cls_loss = torch.tensor(0.0, device=self.device)
 
         for det, target in zip(detections, targets):
             if len(det["boxes"]) == 0:
@@ -235,10 +262,7 @@ class Trainer:
                     detection_loss += self.box_loss(
                         k_boxes, target_boxes[: len(k_boxes)]
                     )
-                    cls_loss += self.detection_cls_loss(
-                        k_labels.unsqueeze(0),
-                        target_labels[: len(k_labels)].unsqueeze(0),
-                    )
+
                 except RuntimeError as e:
                     print(f"Error in loss calculation: {str(e)}")
                     print(f"k_labels shape: {k_labels.shape}")
@@ -248,9 +272,8 @@ class Trainer:
         batch_size = len(detections)
         if batch_size > 0:
             detection_loss = detection_loss / batch_size
-            cls_loss = cls_loss / batch_size
 
-        return detection_loss, cls_loss
+        return detection_loss
 
     def eval_loss(self, detections, birads_logits, density_logits, targets):
         loss_dict = {}
@@ -260,7 +283,7 @@ class Trainer:
         density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
 
         # Calculate detection losses
-        detection_loss, cls_loss = self.get_k_best_scores(detections, targets)
+        detection_loss = self.get_k_best_scores(detections, targets)
 
         # Calculate classification losses
         birads_loss = self.birads_loss(birads_logits, birads_targets)
@@ -269,10 +292,9 @@ class Trainer:
         # Update loss dictionary
         loss_dict.update(
             {
-                "detection_loss": detection_loss * 1.0,
-                "cls_loss": cls_loss * 0.1,
-                "birads_loss": birads_loss * 0.5,
-                "density_loss": density_loss * 0.5,
+                "detection_loss": detection_loss,
+                "birads_loss": birads_loss,
+                "density_loss": density_loss,
             }
         )
 
