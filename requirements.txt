@@ -10,3 +10,4 @@ seaborn==0.11.0
 torch==2.5.1
 torchvision==0.20.1
 tqdm==4.60.0
+torchmetrics==1.6.1
