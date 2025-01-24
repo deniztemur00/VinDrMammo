@@ -16,9 +16,9 @@ class RetinaNetConfig:
     num_classes: int = 35
     num_birads_classes: int = 5
     num_density_classes: int = 4
-    trainable_backbone_layers: int = 5
     detections_per_img: int = 1
     top_k_candidates: int = 1
+    nms_thresh = 0.3
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
 
@@ -38,6 +38,7 @@ class CustomRetinaNet(nn.Module):
             num_classes=config.num_classes,
             detections_per_img=config.detections_per_img,
             top_k_candidates=config.top_k_candidates,
+            nms_thresh=config.nms_thresh,
             image_mean=config.image_mean,
             image_std=config.image_std,
         )
@@ -89,8 +90,8 @@ class CustomRetinaNet(nn.Module):
             density_targets = torch.stack([t["density"] for t in targets]).flatten()
             birads_targets = torch.stack([t["birads"] for t in targets]).flatten()
 
-            birads_loss = self.birads_loss(birads_logits, birads_targets) * 0.1
-            density_loss = self.density_loss(density_logits, density_targets) * 0.1
+            birads_loss = self.birads_loss(birads_logits, birads_targets) * 0.5
+            density_loss = self.density_loss(density_logits, density_targets) * 0.3
 
             losses.update({"birads_loss": birads_loss, "density_loss": density_loss})
 
