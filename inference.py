@@ -33,8 +33,6 @@ class MammographyInference:
         self.density_categories = ["Density-A", "Density-B", "Density-C", "Density-D"]
         self.df = pd.read_csv(df_path)
         self.all_categories, self.cat2idx = create_categories(self.df)
-        print(self.all_categories)
-        print(self.cat2idx)
 
         # Load model weights
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
