@@ -148,29 +148,3 @@ class MammographyInference:
         plt.show()
         return fig
 
-
-def main():
-    # Example usage
-    model_path = "models/best_model.pth"
-    dicom_path = "path/to/your/image.dicom"
-
-    # Initialize inference
-    inferencer = MammographyInference(model_path)
-
-    # Run prediction
-    results = inferencer.predict(dicom_path)
-
-    # Print results
-    print("Detections:")
-    print(f"Found {len(results['boxes'])} lesions")
-    print(f"BIRADS probabilities: {results['birads']}")
-    print(f"Density probabilities: {results['density']}")
-
-    for box, label, score in zip(
-        results["boxes"], results["labels"], results["scores"]
-    ):
-        print(f"Label: {label}, Score: {score:.3f}, Box: {box}")
-
-
-if __name__ == "__main__":
-    main()
