@@ -165,7 +165,7 @@ class Trainer:
                         if isinstance(v, torch.Tensor)
                     }
                     for t in targets
-                ]  # Process each target dict
+                ] 
 
                 detections, birads_logits, density_logits = self.model(images)
 
@@ -252,13 +252,13 @@ class Trainer:
             if len(scores) > k:
                 top_k_scores, top_k_indices = torch.topk(scores, k)
                 k_boxes = det["boxes"][top_k_indices]
-                k_labels = det["labels"][top_k_indices].float()  # Convert to float
+                k_labels = det["labels"][top_k_indices].float()
             else:
                 k_boxes = det["boxes"]
-                k_labels = det["labels"].float()  # Convert to float
+                k_labels = det["labels"].float()
 
             target_boxes = target["boxes"]
-            target_labels = target["labels"].float()  # Convert to float
+            target_labels = target["labels"].float()
 
             if len(target_boxes) > 0:
                 try:
@@ -281,18 +281,18 @@ class Trainer:
     def eval_loss(self, detections, birads_logits, density_logits, targets):
         loss_dict = {}
 
-        # Get targets and convert to correct type
+        
         birads_targets = torch.stack([t["birads"] for t in targets]).flatten().long()
         density_targets = torch.stack([t["density"] for t in targets]).flatten().long()
 
-        # Calculate detection losses
+        
         detection_loss = self.get_k_best_scores(detections, targets)
 
-        # Calculate classification losses
+        
         birads_loss = self.birads_loss(birads_logits, birads_targets)
         density_loss = self.density_loss(density_logits, density_targets)
 
-        # Update loss dictionary
+        
         loss_dict.update(
             {
                 "detection_loss": detection_loss,
