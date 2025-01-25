@@ -30,10 +30,7 @@ def get_best_match(
     scores, indices = torch.sort(pred_score, descending=True)
     pred_box = pred_box[indices]
     pred_label = pred_label[indices]
-    print(scores, indices)
-    print("asdlkfjasşdklfj")
 
-   
     mask = pred_label == true_label
     if not mask.any():
         return {"best_iou": 0.0, "best_score": 0.0, "matched": False}
