@@ -8,10 +8,10 @@ INTER_NAME = "vindr-mammo-a-large-scale-benchmark-dataset-for-computer-aided-det
 
 
 
-# Read the stratified data
+
 global_df = pd.read_csv("metadata/stratified_local.csv")
 
-# Split into train and test based on fold
+
 train_df = global_df[global_df['fold'] == 'training']
 test_df = global_df[global_df['fold'] == 'test']
 
@@ -20,7 +20,7 @@ test_df = global_df[global_df['fold'] == 'test']
 train_dataset = MammographyDataset(train_df, ZIP_PATH, INTER_NAME)
 test_dataset = MammographyDataset(test_df, ZIP_PATH, INTER_NAME)
 
-# Create dataloaders if needed
+
 train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
 
