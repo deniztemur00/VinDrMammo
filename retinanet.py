@@ -83,7 +83,7 @@ class CustomRetinaNet(nn.Module):
         if self.training and targets is not None:
             losses = self.model(images, targets)
 
-            # Get classifications from features
+            
             birads_logits = self.birads_classifier(self.backbone_features)
             density_logits = self.density_classifier(self.backbone_features)
 
