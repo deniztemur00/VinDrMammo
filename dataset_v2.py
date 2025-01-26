@@ -19,9 +19,11 @@ FINDING_CATEGORIES = [
     "Skin Retraction",
     "Nipple Retraction",
     "Suspicious Lymph Node",
-    "Other"
+    "Other",
 ]
 CAT2IDX = {cat: idx for idx, cat in enumerate(FINDING_CATEGORIES)}
+
+IDX2CAT = {idx: cat for cat, idx in CAT2IDX.items()}
 
 
 class MammographyDataset(Dataset):
@@ -32,90 +34,133 @@ class MammographyDataset(Dataset):
         inter_name: str,
         img_size: Tuple[int, int] = (800, 800),
     ) -> None:
-        # Group all annotations per image
-        self.image_groups = df.groupby("image_id")
-        self.image_ids = list(self.image_groups.groups.keys())
-
+        # Use individual rows instead of grouping
+        self.df = df.reset_index(drop=True)
         self.zip_path = zip_path
         self.inter_name = inter_name
         self.img_size = img_size
 
-        
+        # Create mappings
+        self.birads_idx = {
+            v: k for k, v in enumerate(sorted(df.breast_birads.unique()))
+        }
+        self.density_idx = {
+            v: k for k, v in enumerate(sorted(df.breast_density.unique()))
+        }
+        self.cat2idx = CAT2IDX
+        self.idx2cat = IDX2CAT
+
         self.transform = transforms.Compose(
             [
                 transforms.ToTensor(),
                 transforms.Resize(img_size),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                ),
+                # transforms.Normalize(
+                #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                # ),
+                transforms.Grayscale(num_output_channels=3),
             ]
         )
 
     def __len__(self) -> int:
-        return len(self.image_ids)
+        return len(self.df)
 
-    def _load_image(self, image_id: str) -> torch.Tensor:
-        # Get first row for image metadata
-        sample_row = self.image_groups.get_group(image_id).iloc[0]
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict]:
+        row = self.df.iloc[idx]
 
-        # Load DICOM (replace this with your actual DICOM loading logic)
-        dicom_path = f"{self.inter_name}/{sample_row.study_id}/{image_id}.dicom"
+        # Load image
+        image = self._load_image(row)
+
+        # Get annotations
+        target = self._get_annotations(row)
+
+        return image, target
+
+    def _load_image(self, row) -> torch.Tensor:
+        # Your DICOM loading logic here
+        dicom_path = f"{self.inter_name}/{row.study_id}/{row.image_id}.dicom"
         png_img = convert_dicom_to_png(dicom_path)
 
         # Convert to 3-channel and normalize
         img = np.stack([png_img] * 3, axis=-1).astype(np.float32)
-        img = (img - img.min()) / (img.max() - img.min() + 1e-6)
+        img = (img - img.min()) / (img.max() - img.min())
         return self.transform(img)
 
-    def _get_annotations(self, image_id: str) -> Dict[str, torch.Tensor]:
-        group = self.image_groups.get_group(image_id)
-        original_width = group.iloc[0].width
-        original_height = group.iloc[0].height
-
-        # Scale factors
-        w_scale = self.img_size[1] / original_width  # width in torch is dim 1
-        h_scale = self.img_size[0] / original_height  # height is dim 0
+    def _get_annotations(self, row) -> Dict[str, torch.Tensor]:
+        # Scale coordinates
+        w_scale = self.img_size[1] / row.width
+        h_scale = self.img_size[0] / row.height
 
         boxes = []
         labels = []
 
-        for _, row in group.iterrows():
-            if pd.isna(row["xmin"]):
-                continue  # Skip invalid annotations
-
-            # Scale coordinates
-            xmin = row["xmin"] * w_scale
-            ymin = row["ymin"] * h_scale
-            xmax = row["xmax"] * w_scale
-            ymax = row["ymax"] * h_scale
-
-            # Handle multi-label findings (take first category)
-            finding = ast.literal_eval(row["mapping_category"])[0]
-            if finding not in CAT2IDX:
-                continue  # Skip undefined categories
-
+        # Handle single annotation
+        if not pd.isna(row.xmin):
+            xmin = row.xmin * w_scale
+            ymin = row.ymin * h_scale
+            xmax = row.xmax * w_scale
+            ymax = row.ymax * h_scale
             boxes.append([xmin, ymin, xmax, ymax])
-            labels.append(CAT2IDX[finding])
 
-        if len(boxes) == 0:  # No findings
-            return {
-                "boxes": torch.zeros((0, 4), dtype=torch.float32),
-                "labels": torch.zeros((0,), dtype=torch.int64),
-            }
+            # Handle category mapping
+            finding = row.mapped_category.strip()
+            labels.append(
+                self.cat2idx.get(finding, len(self.cat2idx) - 1)
+            )  # Use "Other" for unknown
 
         return {
-            "boxes": torch.tensor(boxes, dtype=torch.float32),
-            "labels": torch.tensor(labels, dtype=torch.int64),
+            "boxes": (
+                torch.tensor(boxes, dtype=torch.float32)
+                if boxes
+                else torch.zeros((0, 4), dtype=torch.float32)
+            ),
+            "labels": (
+                torch.tensor(labels, dtype=torch.int64)
+                if labels
+                else torch.zeros((0,), dtype=torch.int64)
+            ),
+            "birads": torch.tensor(
+                [self.birads_idx[row.breast_birads]], dtype=torch.long
+            ),
+            "density": torch.tensor(
+                [self.density_idx[row.breast_density]], dtype=torch.long
+            ),
         }
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict]:
-        image_id = self.image_ids[idx]
-        image = self._load_image(image_id)
-        target = self._get_annotations(image_id)
-        return image, target
+
+def collate_fn(batch):
+    images = []
+    targets = []
+
+    for img, target in batch:
+        images.append(img)
+        targets.append(
+            {
+                "boxes": target["boxes"],
+                "labels": target["labels"],
+                "birads": target["birads"],
+                "density": target["density"],
+            }
+        )
+
+    # Stack images into tensor [B, C, H, W]
+    images = torch.stack(images, dim=0)
+
+    return images, targets
 
 
 def custom_collate(batch):
     images = [item[0] for item in batch]
     targets = [item[1] for item in batch]
     return images, targets
+
+
+def create_categories(df: pd.DataFrame) -> tuple[List[str], Dict[str, int]]:
+    all_categories = []
+    for cats_str in df.mapped_category.value_counts().index:
+        cats = ast.literal_eval(cats_str)
+        if len(cats) > 1:
+            all_categories.append("-".join(cats))
+        else:
+            all_categories.append(cats[0])
+    cat2idx = {cat: idx for idx, cat in enumerate(all_categories)}
+    return all_categories, cat2idx
