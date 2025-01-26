@@ -1,22 +1,14 @@
 import pandas as pd
 import numpy as np
 from utils.visualize import convert_dicom_to_png
-import zipfile
-import io
+#import zipfile
+#import io
 from torch.utils.data import Dataset
 from torchvision import transforms
 import torch
 import ast
 from typing import List, Dict, Tuple
 
-# global_df, local_df = split.process_data()
-# split.show_df(split.count_box_birads(local_df[local_df.fold == "training"]))
-# split.show_df(split.count_box_birads(local_df[local_df.fold == "test"]))
-# local_df.to_csv('metadata/stratified_local.csv', index=False)
-# global_df.to_csv('metadata/stratified_global.csv', index=False)
-# print(local_df.head())
-# print(global_df.head())
-############################################
 
 
 def create_categories(df: pd.DataFrame) -> tuple[List[str], Dict[str, int]]:
