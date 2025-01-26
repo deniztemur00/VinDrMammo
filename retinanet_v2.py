@@ -21,15 +21,13 @@ class RetinaNetConfig:
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
     anchor_sizes = (
-        (
-            (16, 32, 64),
-            (32, 64, 128),
-            (64, 128, 256),
-            (128, 256, 512),
-            (256, 512, 1024),
-        ),
+        (32, 64, 128),
+        (64, 128, 256),
+        (128, 256, 512),
+        (256, 512, 1024),
+        (512, 1024, 2048),
     )
-    aspect_ratios = ((0.7, 1.0, 1.5),) * 5
+    aspect_ratios = ((0.5, 1.0, 2.0),) * 5
     aux_loss_weight: float = 0.5  # Weight for BI-RADS/density losses
 
 
@@ -87,13 +85,15 @@ class CustomRetinaNet(nn.Module):
 
         # Feature hooks
         self.feature_maps = None
-        self._register_hooks()
+        self.detector.backbone.register_forward_hook(self._get_backbone_features)
 
-    def _register_hooks(self):
-        def feature_hook(module, input, output):
-            self.feature_maps = output["3"]  # P3 features from FPN
+    def _get_backbone_features(self, module, input, output):
+        self.feature_maps = output["3"]  # before pooling shape: 256,25,25
 
-        self.backbone.register_forward_hook(feature_hook)
+    def get_features(self):
+        if self.feature_maps is None:
+            raise ValueError("No features available.")
+        return self.feature_maps
 
     def forward(
         self,
@@ -101,14 +101,23 @@ class CustomRetinaNet(nn.Module):
         targets: Optional[List[Dict[str, torch.Tensor]]] = None,
     ):
         # Main detection forward pass
-        if self.training and targets is not None:
-            detector_losses = self.detector(images, targets)
-        else:
-            detector_losses = None
+        if self.training:
+            if targets is None:
+                raise ValueError("Targets must be provided during training")
 
-        # Get shared features from backbone
-        _ = self.backbone(images.tensors if hasattr(images, "tensors") else images)
-        features = self.feature_maps
+            # Forward through detector (triggers feature hook)
+            detector_losses = self.detector(images, targets)
+            features = self.feature_maps
+
+            # Verify feature map dimensions
+            if features is None:
+                raise RuntimeError("Feature maps not captured from backbone")
+
+        else:
+            # Inference mode
+            with torch.no_grad():
+                detections = self.detector(images)
+                features = self.feature_maps
 
         # Multi-task predictions
         birads_logits = self.birads_head(features)
@@ -128,16 +137,16 @@ class CustomRetinaNet(nn.Module):
             )
 
             return {
-                "total_loss": total_loss,
-                "detection_loss": sum(detector_losses.values()),
+                "classification": detector_losses["classification"],
+                "box_reg": detector_losses["bbox_regression"],
                 "birads_loss": birads_loss,
                 "density_loss": density_loss,
+                "total_loss": total_loss,
             }
         else:
-            # Return predictions during inference
-            detections = self.detector(images) if detector_losses is None else None
             return {
                 "detections": detections,
-                "birads_preds": torch.softmax(birads_logits, dim=1),
-                "density_preds": torch.softmax(density_logits, dim=1),
+                "birads_logits": birads_logits,
+                "density_logits": density_logits,
+                "features": features,
             }
