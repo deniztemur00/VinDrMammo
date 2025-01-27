@@ -15,12 +15,19 @@ class Trainer:
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader = None,
         epochs: int = 10,
-        lr: float = 1e-3,
+        lr: float = 1e-4,
         save_dir: str = "models/",
         name: str = None,
     ):
         self.model = model
-        self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+
+        self.param_groups = [
+            # {"params": model.detector.backbone.parameters(), "lr": 1e-5},  # Frozen backbone
+            {"params": model.detector.parameters(), "lr": 1e-4},  # Detection head
+            {"params": model.birads_head.parameters(), "lr": 1e-3},  # Auxiliary heads
+            {"params": model.density_head.parameters(), "lr": 1e-3},
+        ]
+        self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=0.01)
         self.box_loss = nn.SmoothL1Loss(beta=1.0 / 9.0)
 
         self.map_metric = MeanAveragePrecision(class_metrics=True)
@@ -47,19 +54,6 @@ class Trainer:
         self.train_losses = []
         self.val_losses = []
         self.aux_loss_weight = model.config.aux_loss_weight  # Get from model config
-
-    def save_loss_plot(self):
-        plt.figure(figsize=(10, 5))
-        plt.plot(self.train_losses, label="Training Loss")
-        if self.val_losses:
-            plt.plot(self.val_losses, label="Validation Loss")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.title("Training Progress")
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(os.path.join(self.save_dir, f"{self.name}_losses.png"))
-        plt.close()
 
     def train(self):
         best_loss = float("inf")
@@ -90,14 +84,14 @@ class Trainer:
                     total_loss.backward()
 
                     # Gradient clipping
-                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.3)
-                    nn.utils.clip_grad_value_(self.model.parameters(), clip_value=0.5)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    nn.utils.clip_grad_value_(self.model.parameters(), clip_value=2.0)
 
                     self.optimizer.step()
                     self.scheduler.step()
 
                     current_loss = total_loss.item()
-                    epoch_loss += current_loss
+                    epoch_loss += current_loss / len(self.train_loader)
                     lr = self.scheduler.get_last_lr()[0]
 
                     # Update progress bar
@@ -107,12 +101,12 @@ class Trainer:
                             "reg_loss": f"{loss_dict['box_reg'].item():.4f}",
                             "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
                             "density_loss": f"{loss_dict['density_loss'].item():.4f}",
-                            "total_loss": f"{current_loss:.4f}",
+                            "avg_total_loss": f"{epoch_loss:.4f}",
                             "LR": f"{lr:.5f}",
                         }
                     )
 
-                epoch_loss /= len(self.train_loader)
+                # epoch_loss /= len(self.train_loader)
                 self.train_losses.append(epoch_loss)
 
                 # Validation
@@ -178,12 +172,16 @@ class Trainer:
             )
 
             # Update detection metrics
+
             detections = self.sanitize_detections(detections)
+
             self.map_metric.update(detections, targets)
             map_results = self.map_metric.compute()
 
             birad_results = evaluate_classification(birad_preds, birad_targets)
-            density_results = evaluate_classification(density_preds, density_targets)
+            density_results = evaluate_classification(
+                density_preds, density_targets, task="density"
+            )
 
             # Update progress bar
             val_loader.set_postfix(
@@ -256,3 +254,16 @@ class Trainer:
 
     def load(self, filename):
         self.model.load_state_dict(torch.load(filename, map_location=self.device))
+
+    def save_loss_plot(self):
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.train_losses, label="Training Loss")
+        if self.val_losses:
+            plt.plot(self.val_losses, label="Validation Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Training Progress")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(self.save_dir, f"{self.name}_losses.png"))
+        plt.close()
