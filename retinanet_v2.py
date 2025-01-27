@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, List, Dict
 
 
+from matplotlib import pyplot as plt
+
+
 @dataclass
 class RetinaNetConfig:
     backbone: str = "resnet101"
@@ -21,14 +24,14 @@ class RetinaNetConfig:
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
     anchor_sizes = (
+        (16, 32, 64),
         (32, 64, 128),
         (64, 128, 256),
         (128, 256, 512),
         (256, 512, 1024),
-        (512, 1024, 2048),
     )
     aspect_ratios = ((0.5, 1.0, 2.0),) * 5
-    aux_loss_weight: float = 0.5  # Weight for BI-RADS/density losses
+    aux_loss_weight: float = 0.2  # Weight for BI-RADS/density losses
 
 
 class CustomRetinaNet(nn.Module):
@@ -88,7 +91,7 @@ class CustomRetinaNet(nn.Module):
         self.detector.backbone.register_forward_hook(self._get_backbone_features)
 
     def _get_backbone_features(self, module, input, output):
-        self.feature_maps = output["3"]  # before pooling shape: 256,25,25
+        self.feature_maps = output  # before pooling shape: 256,25,25
 
     def get_features(self):
         if self.feature_maps is None:
@@ -100,14 +103,15 @@ class CustomRetinaNet(nn.Module):
         images: List[torch.Tensor],
         targets: Optional[List[Dict[str, torch.Tensor]]] = None,
     ):
-        # Main detection forward pass
+
+        self.feature_maps = None
         if self.training:
             if targets is None:
                 raise ValueError("Targets must be provided during training")
 
             # Forward through detector (triggers feature hook)
             detector_losses = self.detector(images, targets)
-            features = self.feature_maps
+            features = self.feature_maps["3"]
 
             # Verify feature map dimensions
             if features is None:
@@ -117,7 +121,7 @@ class CustomRetinaNet(nn.Module):
             # Inference mode
             with torch.no_grad():
                 detections = self.detector(images)
-                features = self.feature_maps
+                features = self.feature_maps["3"]
 
         # Multi-task predictions
         birads_logits = self.birads_head(features)
