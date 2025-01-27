@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from utils.visualize import convert_dicom_to_png
 from torch.utils.data import Dataset
-from torchvision import transforms
+from torchvision import transforms 
 import torch
 from typing import Dict, List, Tuple
 import ast
@@ -57,6 +57,7 @@ class MammographyDataset(Dataset):
                 # transforms.Normalize(
                 #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
                 # ),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2),
                 transforms.Grayscale(num_output_channels=3),
             ]
         )
