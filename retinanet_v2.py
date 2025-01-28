@@ -15,11 +15,11 @@ from matplotlib import pyplot as plt
 class RetinaNetConfig:
     backbone: str = "resnet101"
     trainable_backbone_layers: int = 5
-    num_classes: int = 11  # 10 findings + "Other"
+    num_classes: int = 12  # "No Finding" + 10 findings + "Other" 
     num_birads_classes: int = 5  # BI-RADS 1-5
     num_density_classes: int = 4  # Density A-D
-    detections_per_img: int = 10
-    top_k_candidates: int = 10
+    detections_per_img: int = 1
+    top_k_candidates: int = 20
     nms_thresh: float = 0.3
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
@@ -69,7 +69,7 @@ class CustomRetinaNet(nn.Module):
             nn.Flatten(),
             nn.Linear(256, 512),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.1),
             nn.Linear(512, config.num_birads_classes),
         )
 
@@ -78,7 +78,7 @@ class CustomRetinaNet(nn.Module):
             nn.Flatten(),
             nn.Linear(256, 512),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.1),
             nn.Linear(512, config.num_density_classes),
         )
 
