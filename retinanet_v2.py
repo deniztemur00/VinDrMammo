@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 class RetinaNetConfig:
     backbone: str = "resnet101"
     trainable_backbone_layers: int = 5
-    num_classes: int = 12  # "No Finding" + 10 findings + "Other" 
+    num_classes: int = 11   # 10 findings + "Other"
     num_birads_classes: int = 5  # BI-RADS 1-5
     num_density_classes: int = 4  # Density A-D
     detections_per_img: int = 1
@@ -31,7 +31,8 @@ class RetinaNetConfig:
         (256, 512, 1024),
     )
     aspect_ratios = ((0.5, 1.0, 2.0),) * 5
-    aux_loss_weight: float = 0.2  # Weight for BI-RADS/density losses
+    birads_loss_weight = 0.5  # Weight for BI-RADS/density losses
+    density_loss_weight = 0.3
 
 
 class CustomRetinaNet(nn.Module):
@@ -65,18 +66,18 @@ class CustomRetinaNet(nn.Module):
 
         # Multi-task heads
         self.birads_head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
+            nn.AdaptiveAvgPool2d(4),
             nn.Flatten(),
-            nn.Linear(256, 512),
+            nn.Linear(4096, 512),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(512, config.num_birads_classes),
         )
 
         self.density_head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
+            nn.AdaptiveAvgPool2d(2),
             nn.Flatten(),
-            nn.Linear(256, 512),
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(512, config.num_density_classes),
@@ -136,8 +137,10 @@ class CustomRetinaNet(nn.Module):
             density_loss = self.density_loss_fn(density_logits, density_targets)
 
             # Combine losses
-            total_loss = sum(detector_losses.values()) + self.config.aux_loss_weight * (
-                birads_loss + density_loss
+            total_loss = (
+                sum(detector_losses.values())
+                + self.config.birads_loss_weight * birads_loss
+                + self.config.density_loss_weight * density_loss
             )
 
             return {
