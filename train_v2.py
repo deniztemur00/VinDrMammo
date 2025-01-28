@@ -15,19 +15,21 @@ class Trainer:
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader = None,
         epochs: int = 10,
-        lr: float = 1e-4,
+        lr: float = 1e-3,
         save_dir: str = "models/",
         name: str = None,
     ):
         self.model = model
 
-        self.param_groups = [
-            # {"params": model.detector.backbone.parameters(), "lr": 1e-5},  # Frozen backbone
-            {"params": model.detector.parameters(), "lr": 1e-4},  # Detection head
-            {"params": model.birads_head.parameters(), "lr": 1e-3},  # Auxiliary heads
-            {"params": model.density_head.parameters(), "lr": 1e-3},
-        ]
-        self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=0.01)
+        # self.param_groups = [
+        #    # {"params": model.detector.backbone.parameters(), "lr": 1e-5},  # Frozen backbone
+        #    {"params": model.detector.parameters(), "lr": 1e-3},  # Detection head
+        #    {"params": model.birads_head.parameters(), "lr": 1e-3},  # Auxiliary heads
+        #    {"params": model.density_head.parameters(), "lr": 1e-3},
+        # ]
+        self.optimizer = torch.optim.AdamW(
+            self.model.parameters(), lr=lr, weight_decay=0.01
+        )
         self.box_loss = nn.SmoothL1Loss(beta=1.0 / 9.0)
 
         self.map_metric = MeanAveragePrecision(class_metrics=True)
@@ -53,7 +55,6 @@ class Trainer:
         self.name = name if name else ""
         self.train_losses = []
         self.val_losses = []
-        self.aux_loss_weight = model.config.aux_loss_weight  # Get from model config
 
     def train(self):
         best_loss = float("inf")
@@ -90,10 +91,7 @@ class Trainer:
                     self.optimizer.step()
                     self.scheduler.step()
 
-                    current_loss = (
-                        sum(loss_dict.values()).item() - loss_dict["total_loss"].item()
-                    )
-                    current_loss /= len(targets)
+                    current_loss = loss_dict["total_loss"].item()
 
                     epoch_loss += current_loss
                     lr = self.scheduler.get_last_lr()[0]
@@ -262,7 +260,7 @@ class Trainer:
         if valid > 0:
             detection_loss /= valid
         # Combine losses
-        total_loss = detection_loss + (birads_loss + density_loss)
+        total_loss = detection_loss + (birads_loss * 0.5 + density_loss * 0.3)
 
         return total_loss, {
             "detection_loss": detection_loss,
