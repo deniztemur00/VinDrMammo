@@ -90,8 +90,12 @@ class Trainer:
                     self.optimizer.step()
                     self.scheduler.step()
 
-                    current_loss = total_loss.item()
-                    epoch_loss += current_loss / len(self.train_loader)
+                    current_loss = (
+                        sum(loss_dict.values()).item() - loss_dict["total_loss"].item()
+                    )
+                    current_loss /= len(targets)
+
+                    epoch_loss += current_loss
                     lr = self.scheduler.get_last_lr()[0]
 
                     # Update progress bar
@@ -101,17 +105,17 @@ class Trainer:
                             "reg_loss": f"{loss_dict['box_reg'].item():.4f}",
                             "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
                             "density_loss": f"{loss_dict['density_loss'].item():.4f}",
-                            "avg_total_loss": f"{epoch_loss:.4f}",
+                            "avg_curr_loss": f"{current_loss:.4f}",
                             "LR": f"{lr:.5f}",
                         }
                     )
 
-                # epoch_loss /= len(self.train_loader)
+                epoch_loss /= len(self.train_loader)
                 self.train_losses.append(epoch_loss)
 
                 # Validation
                 if self.val_loader:
-                    val_loss = self.validate()
+                    val_loss, _ = self.validate()
                     if val_loss < best_loss:
                         best_loss = val_loss
                         self.save(
@@ -136,6 +140,8 @@ class Trainer:
         birad_targets = []
         density_preds = []
         density_targets = []
+        detections_list = []
+        targets_list = []
 
         val_loader = tqdm(self.val_loader, desc="Validation")
         for images, targets in val_loader:
@@ -178,6 +184,9 @@ class Trainer:
             self.map_metric.update(detections, targets)
             map_results = self.map_metric.compute()
 
+            detections_list.extend(detections)
+            targets_list.extend(targets)
+
             birad_results = evaluate_classification(birad_preds, birad_targets)
             density_results = evaluate_classification(
                 density_preds, density_targets, task="density"
@@ -186,13 +195,13 @@ class Trainer:
             # Update progress bar
             val_loader.set_postfix(
                 {
-                    "val_loss": f"{loss.item():.4f}",
-                    "det_loss": f"{loss_dict['detection_loss'].item():.4f}",
                     "mAP": f"{map_results['map'].item():.4f}",
                     "birads_f1": f"{birad_results['f1']:.4f}",
                     "density_f1": f"{density_results['f1']:.4f}",
+                    "det_loss": f"{loss_dict['detection_loss'].item():.4f}",
                     "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
                     "density_loss": f"{loss_dict['density_loss'].item():.4f}",
+                    "avg_curr_loss": f"{loss.item():.4f}",
                 }
             )
 
@@ -203,14 +212,25 @@ class Trainer:
 
         # Detection metrics
         map_results = self.map_metric.compute()
-        print(f"\nValidation mAP: {map_results['map'].item():.4f}")
+        print("\n", "*" * 50, "\n")
         self.birad_preds = birad_preds
         self.birad_targets = birad_targets
         self.density_preds = density_preds
         self.density_targets = density_targets
         self.map_list = map_results
 
-        return val_loss
+        result_dict = {
+            "val_loss": val_loss,
+            "birad_results": birad_preds,
+            "birad_targets": birad_targets,
+            "density_results": density_preds,
+            "density_targets": density_targets,
+            "detections": detections_list,
+            "targets": targets_list,
+            "map_results": map_results,
+        }
+
+        return val_loss, result_dict
 
     def sanitize_detections(self, detections):
         for det in detections:
@@ -225,10 +245,12 @@ class Trainer:
     def eval_loss(self, detections, birads_logits, density_logits, targets):
         # Detection loss (Smooth L1 on boxes)
         detection_loss = torch.tensor(0.0, device=self.device)
+        valid = 0
         for det, tgt in zip(detections, targets):
             if len(det["boxes"]) == 0 or len(tgt["boxes"]) == 0:
                 continue
             detection_loss += self.box_loss(det["boxes"], tgt["boxes"])
+            valid += 1
 
         # Classification losses
         birads_targets = torch.stack([t["birads"] for t in targets]).long().flatten()
@@ -237,11 +259,10 @@ class Trainer:
         birads_loss = self.birads_loss(birads_logits, birads_targets)
         density_loss = self.density_loss(density_logits, density_targets)
 
-        detection_loss /= len(detections)
+        if valid > 0:
+            detection_loss /= valid
         # Combine losses
-        total_loss = detection_loss + self.aux_loss_weight * (
-            birads_loss + density_loss
-        )
+        total_loss = detection_loss + (birads_loss + density_loss)
 
         return total_loss, {
             "detection_loss": detection_loss,
