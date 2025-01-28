@@ -9,7 +9,6 @@ import ast
 
 # Simplified class mapping based on Table 4
 FINDING_CATEGORIES = [
-    "No Finding",
     "Mass",
     "Suspicious Calcification",
     "Asymmetry",
@@ -95,19 +94,16 @@ class MammographyDataset(Dataset):
         boxes = []
         labels = []
 
-        # Handle single annotation
-        if not pd.isna(row.xmin):
+        finding = row.mapped_category.strip()
+        if finding != "No Finding" and not pd.isna(row.xmin):
             xmin = row.xmin * w_scale
             ymin = row.ymin * h_scale
             xmax = row.xmax * w_scale
             ymax = row.ymax * h_scale
             boxes.append([xmin, ymin, xmax, ymax])
 
-        # Handle category mapping
-        finding = row.mapped_category.strip()
-        labels.append(
-            self.cat2idx.get(finding, len(self.cat2idx) - 1)
-        )  # Use "Other" for unknown
+            # Now we know it's a valid finding, so we can add the label
+            labels.append(self.cat2idx.get(finding, len(self.cat2idx) - 1))
 
         return {
             "boxes": (
