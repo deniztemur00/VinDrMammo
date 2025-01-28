@@ -2,13 +2,14 @@ import pandas as pd
 import numpy as np
 from utils.visualize import convert_dicom_to_png
 from torch.utils.data import Dataset
-from torchvision import transforms 
+from torchvision import transforms
 import torch
 from typing import Dict, List, Tuple
 import ast
 
 # Simplified class mapping based on Table 4
 FINDING_CATEGORIES = [
+    "No Finding",
     "Mass",
     "Suspicious Calcification",
     "Asymmetry",
@@ -102,11 +103,11 @@ class MammographyDataset(Dataset):
             ymax = row.ymax * h_scale
             boxes.append([xmin, ymin, xmax, ymax])
 
-            # Handle category mapping
-            finding = row.mapped_category.strip()
-            labels.append(
-                self.cat2idx.get(finding, len(self.cat2idx) - 1)
-            )  # Use "Other" for unknown
+        # Handle category mapping
+        finding = row.mapped_category.strip()
+        labels.append(
+            self.cat2idx.get(finding, len(self.cat2idx) - 1)
+        )  # Use "Other" for unknown
 
         return {
             "boxes": (
