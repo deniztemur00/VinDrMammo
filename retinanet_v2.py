@@ -18,9 +18,9 @@ class RetinaNetConfig:
     num_classes: int = 11  # 10 findings + "Other"
     num_birads_classes: int = 5  # BI-RADS 1-5
     num_density_classes: int = 4  # Density A-D
-    detections_per_img: int = 1
-    top_k_candidates: int = 30
-    nms_thresh: float = 0.2
+    detections_per_img: int = 100
+    top_k_candidates: int = 200
+    nms_thresh: float = 0.6
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
     # anchor_sizes = (
@@ -31,13 +31,13 @@ class RetinaNetConfig:
     #    (256, 512, 1024),
     # )
     anchor_sizes = (
-        32.40892144861259,
-        64.94613996596048,
-        106.96961665481174,
-        168.31520340563276,
-        269.65861788891453,
+        (32.4, 64.9, 106.9),
+        (64.9, 106.9, 168.3),
+        (106.9, 168.3, 269.6),
+        (168.3, 269.6, 400.0),
+        (269.6, 400.0, 600.0),
     )
-    aspect_ratios = ((0.678439459529155, 1.0994806604404284, 1.569793764673273),) * 5
+    aspect_ratios = ((0.67, 1.09, 1.57),) * 5
     # aspect_ratios = ((0.5, 1.0, 2.0),) * 5
     birads_loss_weight = 0.5  # Weight for BI-RADS/density losses
     density_loss_weight = 0.3
@@ -144,7 +144,6 @@ class CustomRetinaNet(nn.Module):
             # Calculate auxiliary losses
             birads_targets = torch.cat([t["birads"] for t in targets])
             density_targets = torch.cat([t["density"] for t in targets])
-
             birads_loss = self.birads_loss_fn(birads_logits, birads_targets)
             density_loss = self.density_loss_fn(density_logits, density_targets)
 
