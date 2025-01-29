@@ -15,22 +15,30 @@ from matplotlib import pyplot as plt
 class RetinaNetConfig:
     backbone: str = "resnet101"
     trainable_backbone_layers: int = 5
-    num_classes: int = 11   # 10 findings + "Other"
+    num_classes: int = 11  # 10 findings + "Other"
     num_birads_classes: int = 5  # BI-RADS 1-5
     num_density_classes: int = 4  # Density A-D
     detections_per_img: int = 1
-    top_k_candidates: int = 20
-    nms_thresh: float = 0.3
+    top_k_candidates: int = 30
+    nms_thresh: float = 0.2
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
+    # anchor_sizes = (
+    #    (16, 32, 64),
+    #    (32, 64, 128),
+    #    (64, 128, 256),
+    #    (128, 256, 512),
+    #    (256, 512, 1024),
+    # )
     anchor_sizes = (
-        (16, 32, 64),
-        (32, 64, 128),
-        (64, 128, 256),
-        (128, 256, 512),
-        (256, 512, 1024),
+        32.40892144861259,
+        64.94613996596048,
+        106.96961665481174,
+        168.31520340563276,
+        269.65861788891453,
     )
-    aspect_ratios = ((0.5, 1.0, 2.0),) * 5
+    aspect_ratios = ((0.678439459529155, 1.0994806604404284, 1.569793764673273),) * 5
+    # aspect_ratios = ((0.5, 1.0, 2.0),) * 5
     birads_loss_weight = 0.5  # Weight for BI-RADS/density losses
     density_loss_weight = 0.3
 
@@ -66,18 +74,22 @@ class CustomRetinaNet(nn.Module):
 
         # Multi-task heads
         self.birads_head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(4),
+            nn.Conv2d(256, 512, kernel_size=5, padding=1),
+            nn.MaxPool2d(4),
+            # nn.AdaptiveAvgPool2d(4),
             nn.Flatten(),
-            nn.Linear(4096, 512),
+            nn.Linear(2048, 512),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(512, config.num_birads_classes),
         )
 
         self.density_head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(2),
+            nn.Conv2d(256, 512, kernel_size=5, padding=1),
+            nn.MaxPool2d(4),
+            # nn.AdaptiveAvgPool2d(2),
             nn.Flatten(),
-            nn.Linear(1024, 512),
+            nn.Linear(2048, 512),
             nn.ReLU(),
             nn.Dropout(0.1),
             nn.Linear(512, config.num_density_classes),
@@ -112,7 +124,7 @@ class CustomRetinaNet(nn.Module):
 
             # Forward through detector (triggers feature hook)
             detector_losses = self.detector(images, targets)
-            features = self.feature_maps["3"]
+            features = self.feature_maps["pool"]
 
             # Verify feature map dimensions
             if features is None:
@@ -122,7 +134,7 @@ class CustomRetinaNet(nn.Module):
             # Inference mode
             with torch.no_grad():
                 detections = self.detector(images)
-                features = self.feature_maps["3"]
+                features = self.feature_maps["pool"]
 
         # Multi-task predictions
         birads_logits = self.birads_head(features)
