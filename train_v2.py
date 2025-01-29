@@ -1,7 +1,7 @@
 import os
 import torch
 from torch import nn
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from evaluation import evaluate_classification
@@ -21,16 +21,14 @@ class Trainer:
     ):
         self.model = model
 
-        # self.param_groups = [
-        #    # {"params": model.detector.backbone.parameters(), "lr": 1e-5},  # Frozen backbone
-        #    {"params": model.detector.parameters(), "lr": 1e-3},  # Detection head
-        #    {"params": model.birads_head.parameters(), "lr": 1e-3},  # Auxiliary heads
-        #    {"params": model.density_head.parameters(), "lr": 1e-3},
-        # ]
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=lr, weight_decay=0.01
-        )
-        self.box_loss = nn.SmoothL1Loss(beta=1.0 / 9.0)
+        self.param_groups = [
+            # {"params": model.detector.backbone.parameters(), "lr": 1e-5},  # Frozen backbone
+            {"params": model.detector.parameters(), "lr": 2e-4},  # Detection head
+            {"params": model.birads_head.parameters(), "lr": 2e-5},  # Auxiliary heads
+            {"params": model.density_head.parameters(), "lr": 2e-5},
+        ]
+        self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=0.01)
+        self.box_loss = nn.SmoothL1Loss()
 
         self.map_metric = MeanAveragePrecision(class_metrics=True)
         self.birads_loss = nn.CrossEntropyLoss()
@@ -46,11 +44,12 @@ class Trainer:
         os.makedirs(self.save_dir, exist_ok=True)
         self.model.to(self.device)
 
-        self.scheduler = CosineAnnealingLR(
-            self.optimizer,
-            T_max=epochs * len(train_loader),
-            eta_min=1e-6,
-        )
+        # self.scheduler = CosineAnnealingLR(
+        #    self.optimizer,
+        #    T_max=epochs * len(train_loader),
+        #    eta_min=1e-6,
+        # )
+        self.scheduler = StepLR(self.optimizer, step_size=1, gamma=0.8)
 
         self.name = name if name else ""
         self.train_losses = []
@@ -89,7 +88,7 @@ class Trainer:
                     nn.utils.clip_grad_value_(self.model.parameters(), clip_value=2.0)
 
                     self.optimizer.step()
-                    self.scheduler.step()
+                    # self.scheduler.step()
 
                     current_loss = loss_dict["total_loss"].item()
 
@@ -107,7 +106,7 @@ class Trainer:
                             "LR": f"{lr:.5f}",
                         }
                     )
-
+                self.scheduler.step()
                 epoch_loss /= len(self.train_loader)
                 self.train_losses.append(epoch_loss)
 
@@ -211,11 +210,6 @@ class Trainer:
         # Detection metrics
         map_results = self.map_metric.compute()
         print("\n", "*" * 50, "\n")
-        self.birad_preds = birad_preds
-        self.birad_targets = birad_targets
-        self.density_preds = density_preds
-        self.density_targets = density_targets
-        self.map_list = map_results
 
         result_dict = {
             "val_loss": val_loss,
@@ -227,6 +221,7 @@ class Trainer:
             "targets": targets_list,
             "map_results": map_results,
         }
+        self.result_dict = result_dict
 
         return val_loss, result_dict
 
