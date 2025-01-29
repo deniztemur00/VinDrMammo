@@ -49,6 +49,7 @@ class MammographyDataset(Dataset):
         }
         self.cat2idx = CAT2IDX
         self.idx2cat = IDX2CAT
+        self.findings = FINDING_CATEGORIES
 
         self.transform = transforms.Compose(
             [
