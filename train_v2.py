@@ -6,6 +6,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from evaluation import evaluate_classification
 from torchmetrics.detection import MeanAveragePrecision
+from torchvision.ops import nms, box_iou
 
 
 class Trainer:
@@ -22,15 +23,19 @@ class Trainer:
         self.model = model
 
         self.param_groups = [
-            # {"params": model.detector.backbone.parameters(), "lr": 1e-5},  # Frozen backbone
-            {"params": model.detector.parameters(), "lr": 2e-4},  # Detection head
-            {"params": model.birads_head.parameters(), "lr": 2e-5},  # Auxiliary heads
-            {"params": model.density_head.parameters(), "lr": 2e-5},
+            {"params": model.backbone.parameters(), "lr": 1e-5},
+            {"params": model.detector.head.parameters(), "lr": 1e-4},
+            # {"params": model.detector.parameters(), "lr": 1e-4},  # Detection head
+            {"params": model.birads_head.parameters(), "lr": 2e-4},  # Auxiliary heads
+            {"params": model.density_head.parameters(), "lr": 2e-4},
         ]
         self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=0.01)
         self.box_loss = nn.SmoothL1Loss()
 
-        self.map_metric = MeanAveragePrecision(class_metrics=True)
+        self.map_metric = MeanAveragePrecision(
+            iou_type="bbox",
+            class_metrics=True,
+        )
         self.birads_loss = nn.CrossEntropyLoss()
         self.density_loss = nn.CrossEntropyLoss()
 
@@ -114,6 +119,10 @@ class Trainer:
                 if self.val_loader:
                     val_loss, _ = self.validate()
                     if val_loss < best_loss:
+                        print(
+                            f"Validation loss improved from {best_loss:.4f} to {val_loss:.4f}"
+                        )
+                        print("Saving model...")
                         best_loss = val_loss
                         self.save(
                             os.path.join(self.save_dir, f"{self.name}_best_model.pth")
@@ -154,6 +163,8 @@ class Trainer:
             # Forward pass
             outputs = self.model(images)
             detections = outputs["detections"]
+
+            detections = self.keep_detections(detections)
             birads_logits = outputs["birads_logits"]
             density_logits = outputs["density_logits"]
 
@@ -225,6 +236,27 @@ class Trainer:
 
         return val_loss, result_dict
 
+    def keep_detections(self, detections):
+        for det in detections:
+            if len(det["boxes"]) == 0:
+                continue
+
+            # Apply NMS (critical for mAP with multiple predictions)
+            keep = nms(
+                boxes=det["boxes"],
+                scores=det["scores"],
+                iou_threshold=0.5,  # Match your RetinaNet config
+            )
+            for key in ["boxes", "scores", "labels"]:
+                det[key] = det[key][keep]
+
+            # Filter by confidence (optional but recommended)
+            conf_mask = det["scores"] > 0.05  # Adjust threshold
+            for key in ["boxes", "scores", "labels"]:
+                det[key] = det[key][conf_mask]
+
+        return detections
+
     def sanitize_detections(self, detections):
         for det in detections:
             if len(det["boxes"]) > 0:
@@ -242,7 +274,13 @@ class Trainer:
         for det, tgt in zip(detections, targets):
             if len(det["boxes"]) == 0 or len(tgt["boxes"]) == 0:
                 continue
-            detection_loss += self.box_loss(det["boxes"], tgt["boxes"])
+
+            ious = box_iou(det["boxes"], tgt["boxes"])
+            best_match_idx = ious.argmax(dim=0)
+
+            # Calculate loss only for the best-matching prediction
+            matched_boxes = det["boxes"][best_match_idx]
+            detection_loss += self.box_loss(matched_boxes, tgt["boxes"])
             valid += 1
 
         # Classification losses
