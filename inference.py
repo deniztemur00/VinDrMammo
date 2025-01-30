@@ -1,19 +1,15 @@
 import torch
-
 from torchvision import transforms
 import numpy as np
 from utils.visualize import convert_dicom_to_png
-
-# from fasterrcnn import CustomFasterRCNN, FasterRCNNConfig
-from retinanet import CustomRetinaNet, RetinaNetConfig
+from retinanet_v2 import CustomRetinaNet, RetinaNetConfig
 from matplotlib import pyplot as plt
 import torch.nn.functional as F
 from typing import Dict
-from dataset import create_categories, pd
 
 
 class MammographyInference:
-    def __init__(self, model_path: str, df_path: str, device: str = None):
+    def __init__(self, model_path: str, device: str = None):
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
@@ -23,6 +19,26 @@ class MammographyInference:
         self.config = RetinaNetConfig()
         self.model = CustomRetinaNet(self.config)
 
+        self.finding_categories = [
+            "Mass",
+            "Suspicious Calcification",
+            "Asymmetry",
+            "Focal Asymmetry",
+            "Global Asymmetry",
+            "Architectural Distortion",
+            "Skin Thickening",
+            "Skin Retraction",
+            "Nipple Retraction",
+            "Suspicious Lymph Node",
+            "Other",
+        ]
+        self.finding_birads = [
+            # "BIRADS-1",
+            "BIRADS-2",
+            "BIRADS-3",
+            "BIRADS-4",
+            "BIRADS-5",
+        ]
         self.birad_categories = [
             "BIRADS-1",
             "BIRADS-2",
@@ -31,20 +47,24 @@ class MammographyInference:
             "BIRADS-5",
         ]
         self.density_categories = ["Density-A", "Density-B", "Density-C", "Density-D"]
-        self.df = pd.read_csv(df_path)
-        self.all_categories, self.cat2idx = create_categories(self.df)
 
         # Load model weights
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         self.model.to(self.device)
         self.model.eval()
 
+        print(f"Model loaded from {model_path}. Device: {self.device}")
         # Image preprocessing
-        self.size = (1130, 880)  # Same as dataset
+        self.size = (800, 800)  # Same as dataset
         self.transform = transforms.Compose(
             [
                 transforms.ToTensor(),
-                transforms.Resize(size=self.size),
+                transforms.Resize(self.size),
+                # transforms.Normalize(
+                #    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                # ),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2),
+                transforms.Grayscale(num_output_channels=3),
             ]
         )
 
@@ -55,19 +75,19 @@ class MammographyInference:
         if png_img is None:
             raise ValueError(f"Could not convert DICOM file: {dicom_path}")
 
-        img = png_img.astype(np.float32)
+        img = np.stack([png_img] * 3, axis=-1).astype(np.float32)
         img = (img - img.min()) / (img.max() - img.min())
-        img = np.stack([img, img, img], axis=-1)
-
         img = self.transform(img)
+        img = img.to(self.device)
         return img.unsqueeze(0)
 
     @torch.no_grad()
     def predict(
         self,
         dicom_path: str,
-        top_k: int = 1,
-        visualize: str = False,
+        top_k: int = 3,
+        visualize: bool = False,
+        conf_threshold: float = 0.2,
     ) -> Dict:
         """
         Perform inference on a single DICOM image
@@ -85,9 +105,12 @@ class MammographyInference:
                 - density: Density classification probabilities
         """
         img = self.preprocess_image(dicom_path)
-        img = img.to(self.device)
         with torch.no_grad():
-            detections, birads_logits, density_logits = self.model(img)
+            outputs = self.model(img)
+
+        detections = outputs["detections"]
+        birads_logits = outputs["birads_logits"]
+        density_logits = outputs["density_logits"]
 
         if len(detections[0]["boxes"]) > 0:
             _, top_k_indices = torch.topk(detections[0]["scores"], k=top_k)
@@ -106,37 +129,56 @@ class MammographyInference:
 
         birads_confidence, birads_indice = torch.max(birads_probs, -1)
         density_confidence, density_indice = torch.max(density_probs, -1)
-        birads = self.birad_categories[birads_indice]
+        birads = self.finding_birads[birads_indice]
         density = self.density_categories[density_indice]
+        birads_confidence = birads_confidence.cpu().numpy()[0]
+        density_confidence = density_confidence.cpu().numpy()[0]
         if visualize:
             self._visualize(
                 img[0].cpu().numpy().transpose(1, 2, 0),
-                top_boxes,
-                top_scores,
-                top_labels,
+                top_boxes.cpu().numpy(),
+                top_scores.cpu().numpy(),
+                top_labels.cpu().numpy(),
+                birads,
+                birads_confidence,
+                density,
+                density_confidence,
             )
 
         top_labels = top_labels.cpu().numpy()[0]
-        top_category = self.all_categories[top_labels]
+        top_category = self.finding_categories[top_labels]
         inference_dict = {
-            "boxes": top_boxes.numpy()[0],
+            "boxes": top_boxes.cpu().numpy()[0],
             "finding_category": top_category,
-            "scores": top_scores.numpy()[0],
+            "scores": top_scores.cpu().numpy()[0],
             "birads": birads,
-            "birads_confidence": birads_confidence[0],
+            "birads_confidence": birads_confidence,
             "density": density,
-            "density_confidence": density_confidence[0],
+            "density_confidence": density_confidence,
         }
-        print(inference_dict)
+        # print(inference_dict)
 
         return inference_dict
 
-    def _visualize(self, img: np.ndarray, boxes, scores, labels):
+    def _visualize(
+        self,
+        img: np.ndarray,
+        boxes,
+        scores,
+        labels,
+        birads,
+        birads_confidence,
+        density,
+        density_confidence,
+    ):
 
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
         ax.imshow(img)
+        botttom_text = (
+            f"{birads}: {birads_confidence:.4f}\n{density}: {density_confidence:.4f}"
+        )
         for box, score, label in zip(boxes, scores, labels):
-            category = self.all_categories[label.item()]
+            category = self.finding_categories[label.item()]
             score = score.item()
             x1, y1, x2, y2 = box
             ax.add_patch(
@@ -144,7 +186,50 @@ class MammographyInference:
                     (x1, y1), x2 - x1, y2 - y1, fill=False, color="red", linewidth=2
                 )
             )
+            ax.text(
+                0.40,
+                0.05,
+                botttom_text,
+                transform=ax.transAxes,
+                color="red",
+                fontsize=12,
+            )
+
             ax.text(x1, y1, f"{category}:{score:.4f}", color="red", fontsize=12)
         plt.show()
         return fig
 
+    def visualize_gt(self, img: torch.tensor, target: dict):
+        img = img.permute(1, 2, 0).numpy()
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        ax.imshow(img)
+        birads = self.birad_categories[target["birads"].item()]
+        density = self.density_categories[target["density"].item()]
+        category = self.finding_categories[target["labels"].item()]
+
+        bottom_text = f"{birads}\n{density}"
+        for box, label in zip(target["boxes"], target["labels"]):
+            x1, y1, x2, y2 = box
+            ax.add_patch(
+                plt.Rectangle(
+                    (x1, y1), x2 - x1, y2 - y1, fill=False, color="green", linewidth=2
+                )
+            )
+            ax.text(
+                0.40,
+                0.05,
+                bottom_text,
+                transform=ax.transAxes,
+                color="green",
+                fontsize=12,
+            )
+            ax.text(x1, y1, f"{category}", color="green", fontsize=12)
+        plt.show()
+
+        result_dict = {
+            "boxes": target["boxes"].numpy(),
+            "finding_category": category,
+            "birads": birads,
+            "density": density,
+        }
+        return result_dict
