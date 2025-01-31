@@ -1,6 +1,6 @@
 # Results
 
-results of the VinDr-Mammo Object Detection project. The results include confusion matrices, sample detections, and performance metrics for different tasks such as detection, BI-RADS classification, and breast density classification.
+Results of the VinDr-Mammo Object Detection project. The results include confusion matrices, sample detections, and performance metrics for different tasks such as detection, BI-RADS classification, and breast density classification.
 
 
 
