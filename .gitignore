@@ -2,3 +2,6 @@
 models/
 metadata/
 data/
+utils/exploration.ipynb
+utils/split.ipynb
+
