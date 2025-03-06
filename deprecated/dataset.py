@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from utils.visualize import convert_dicom_to_png
+from utils.dicom2png import convert_dicom_to_png
 #import zipfile
 #import io
 from torch.utils.data import Dataset
