@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from utils.visualize import convert_dicom_to_png
+from utils.dicom2png import convert_dicom_to_png, Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 import torch
@@ -33,14 +33,16 @@ class MammographyDataset(Dataset):
         zip_path: str,
         inter_name: str,
         img_size: Tuple[int, int] = (800, 800),
+        png_converted: bool = False,
     ) -> None:
-        # Use individual rows instead of grouping
+
         self.df = df.reset_index(drop=True)
         self.zip_path = zip_path
         self.inter_name = inter_name
         self.img_size = img_size
+        self.png_converted = png_converted
 
-        # Create mappings
+
         self.birads_idx = {
             v: k for k, v in enumerate(sorted(df.breast_birads.unique()))
         }
@@ -69,26 +71,38 @@ class MammographyDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict]:
         row = self.df.iloc[idx]
 
-        # Load image
-        image = self._load_image(row)
+        if self.png_converted:
+            image = self._load_image_png(row)
+        else:
+            image = self._load_image_dicom(row)
 
         # Get annotations
         target = self._get_annotations(row)
 
         return image, target
 
-    def _load_image(self, row) -> torch.Tensor:
-        # Your DICOM loading logic here
+    def _load_image_png(self, row) -> torch.Tensor:
+ 
+        png_path = f"{self.inter_name}/{row.study_id}/{row.image_id}.png"
+        img = np.array(Image.open(png_path))
+
+        img = img.astype(np.float32)
+        img = (img - img.min()) / (img.max() - img.min() + 1e-10)
+        img = np.stack([img] * 3, axis=-1)
+
+        return self.transform(img)
+
+    def _load_image_dicom(self, row) -> torch.Tensor:
+
         dicom_path = f"{self.inter_name}/{row.study_id}/{row.image_id}.dicom"
         png_img = convert_dicom_to_png(dicom_path)
 
-        # Convert to 3-channel and normalize
+
         img = np.stack([png_img] * 3, axis=-1).astype(np.float32)
         img = (img - img.min()) / (img.max() - img.min())
         return self.transform(img)
 
     def _get_annotations(self, row) -> Dict[str, torch.Tensor]:
-        # Scale coordinates
         w_scale = self.img_size[1] / row.width
         h_scale = self.img_size[0] / row.height
 
@@ -103,7 +117,6 @@ class MammographyDataset(Dataset):
             ymax = row.ymax * h_scale
             boxes.append([xmin, ymin, xmax, ymax])
 
-            # Now we know it's a valid finding, so we can add the label
             labels.append(self.cat2idx.get(finding, len(self.cat2idx) - 1))
 
         return {
@@ -141,7 +154,7 @@ def collate_fn(batch):
             }
         )
 
-    # Stack images into tensor [B, C, H, W]
+
     images = torch.stack(images, dim=0)
 
     return images, targets
