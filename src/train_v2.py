@@ -27,7 +27,7 @@ class Trainer:
             {"params": model.detector.head.parameters(), "lr": 1e-4},
             # {"params": model.detector.parameters(), "lr": 1e-4},  # Detection head
             {"params": model.birads_head.parameters(), "lr": 2e-4},  # Auxiliary heads
-            {"params": model.density_head.parameters(), "lr": 2e-4},
+            {"params": model.density_head.parameters(), "lr": 2e-4}, # Auxiliary heads
         ]
         self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=0.01)
         self.box_loss = nn.SmoothL1Loss()
