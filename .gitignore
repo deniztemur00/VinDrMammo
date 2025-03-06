@@ -2,6 +2,7 @@
 models/
 metadata/
 data/
+data_output/
 utils/exploration.ipynb
 utils/split.ipynb
 VinDrMammoNotebooks/
