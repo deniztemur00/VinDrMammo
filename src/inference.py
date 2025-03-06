@@ -1,7 +1,7 @@
 import torch
 from torchvision import transforms
 import numpy as np
-from utils.visualize import convert_dicom_to_png
+from utils.dicom2png import convert_dicom_to_png
 from retinanet_v2 import CustomRetinaNet, RetinaNetConfig
 from matplotlib import pyplot as plt
 import torch.nn.functional as F
