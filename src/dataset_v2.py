@@ -42,7 +42,6 @@ class MammographyDataset(Dataset):
         self.img_size = img_size
         self.png_converted = png_converted
 
-
         self.birads_idx = {
             v: k for k, v in enumerate(sorted(df.breast_birads.unique()))
         }
@@ -73,16 +72,15 @@ class MammographyDataset(Dataset):
 
         if self.png_converted:
             image = self._load_image_png(row)
+            target = self._get_annotation_agg(row)
         else:
             image = self._load_image_dicom(row)
-
-        # Get annotations
-        target = self._get_annotations(row)
+            target = self._get_annotations(row)
 
         return image, target
 
     def _load_image_png(self, row) -> torch.Tensor:
- 
+
         png_path = f"{self.inter_name}/{row.study_id}/{row.image_id}.png"
         img = np.array(Image.open(png_path))
 
@@ -97,10 +95,74 @@ class MammographyDataset(Dataset):
         dicom_path = f"{self.inter_name}/{row.study_id}/{row.image_id}.dicom"
         png_img = convert_dicom_to_png(dicom_path)
 
-
         img = np.stack([png_img] * 3, axis=-1).astype(np.float32)
         img = (img - img.min()) / (img.max() - img.min())
         return self.transform(img)
+
+    def _get_annotation_agg(self, row) -> Dict[str, torch.Tensor]:
+        """
+        Process aggregated annotations for images with multiple findings.
+        Handles entries where xmin, ymin, xmax, ymax, and mapped_category are already in list format.
+        Also handles "No Findings" cases where these lists may be empty.
+        """
+        h_scale = self.img_size[0] / row.height
+        w_scale = self.img_size[1] / row.width
+
+        boxes = []
+        labels = []
+
+        # Check if the lists are not empty
+        if len(row.xmin) > 0:
+            # Now we're working with actual lists, not string representations
+            xmins = row.xmin
+            ymins = row.ymin
+            xmaxs = row.xmax
+            ymaxs = row.ymax
+            categories = row.mapped_category
+
+            # Ensure all lists have the same length
+            assert (
+                len(xmins) == len(ymins) == len(xmaxs) == len(ymaxs) == len(categories)
+            ), "Length mismatch in annotations"
+
+            for xmin, ymin, xmax, ymax, category in zip(
+                xmins, ymins, xmaxs, ymaxs, categories
+            ):
+                # Check if this is a valid finding (not "No Finding")
+                if category != "No Finding":
+                    # Scale coordinates to match image size
+                    xmin_scaled = float(xmin) * w_scale
+                    ymin_scaled = float(ymin) * h_scale
+                    xmax_scaled = float(xmax) * w_scale
+                    ymax_scaled = float(ymax) * h_scale
+
+                    boxes.append([xmin_scaled, ymin_scaled, xmax_scaled, ymax_scaled])
+                    labels.append(self.cat2idx.get(category, len(self.cat2idx) - 1))
+
+        # Branch for "No Findings" or empty lists
+        # This branch is left empty as requested, but will be triggered when:
+        # - The lists are empty
+        # - Or only contain "No Finding" entries
+        # In both cases, boxes and labels will remain empty
+
+        return {
+            "boxes": (
+                torch.tensor(boxes, dtype=torch.float32)
+                if boxes
+                else torch.zeros((0, 4), dtype=torch.float32)
+            ),
+            "labels": (
+                torch.tensor(labels, dtype=torch.int64)
+                if labels
+                else torch.zeros((0,), dtype=torch.int64)
+            ),
+            "birads": torch.tensor(
+                [self.birads_idx[row.breast_birads]], dtype=torch.long
+            ),
+            "density": torch.tensor(
+                [self.density_idx[row.breast_density]], dtype=torch.long
+            ),
+        }
 
     def _get_annotations(self, row) -> Dict[str, torch.Tensor]:
         w_scale = self.img_size[1] / row.width
@@ -153,7 +215,6 @@ def collate_fn(batch):
                 "density": target["density"],
             }
         )
-
 
     images = torch.stack(images, dim=0)
 
