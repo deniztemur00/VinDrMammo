@@ -6,4 +6,5 @@ data_output/
 data_output_cropped/
 utils/exploration.ipynb
 utils/split.ipynb
+metadata/
 VinDrMammoNotebooks/
