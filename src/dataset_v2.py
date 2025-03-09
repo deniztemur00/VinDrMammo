@@ -111,33 +111,30 @@ class MammographyDataset(Dataset):
         boxes = []
         labels = []
 
-        # Check if the lists are not empty
-        if len(row.xmin) > 0:
-            # Now we're working with actual lists, not string representations
-            xmins = row.xmin
-            ymins = row.ymin
-            xmaxs = row.xmax
-            ymaxs = row.ymax
-            categories = row.mapped_category
+        xmins = ast.literal_eval(row.xmin)
+        ymins = ast.literal_eval(row.ymin)
+        xmaxs = ast.literal_eval(row.xmax)
+        ymaxs = ast.literal_eval(row.ymax)
+        categories = ast.literal_eval(row.mapped_category)
 
-            # Ensure all lists have the same length
-            assert (
-                len(xmins) == len(ymins) == len(xmaxs) == len(ymaxs) == len(categories)
-            ), "Length mismatch in annotations"
+        # Ensure all lists have the same length
+        assert (
+            len(xmins) == len(ymins) == len(xmaxs) == len(ymaxs) == len(categories)
+        ), "Length mismatch in annotations"
 
-            for xmin, ymin, xmax, ymax, category in zip(
-                xmins, ymins, xmaxs, ymaxs, categories
-            ):
-                # Check if this is a valid finding (not "No Finding")
-                if category != "No Finding":
-                    # Scale coordinates to match image size
-                    xmin_scaled = float(xmin) * w_scale
-                    ymin_scaled = float(ymin) * h_scale
-                    xmax_scaled = float(xmax) * w_scale
-                    ymax_scaled = float(ymax) * h_scale
+        for xmin, ymin, xmax, ymax, category in zip(
+            xmins, ymins, xmaxs, ymaxs, categories
+        ):
+            # Check if this is a valid finding (not "No Finding")
+            if category != "No Finding":
+                # Scale coordinates to match image size
+                xmin_scaled = float(xmin) * w_scale
+                ymin_scaled = float(ymin) * h_scale
+                xmax_scaled = float(xmax) * w_scale
+                ymax_scaled = float(ymax) * h_scale
 
-                    boxes.append([xmin_scaled, ymin_scaled, xmax_scaled, ymax_scaled])
-                    labels.append(self.cat2idx.get(category, len(self.cat2idx) - 1))
+                boxes.append([xmin_scaled, ymin_scaled, xmax_scaled, ymax_scaled])
+                labels.append(self.cat2idx.get(category, len(self.cat2idx) - 1))
 
         # Branch for "No Findings" or empty lists
         # This branch is left empty as requested, but will be triggered when:
