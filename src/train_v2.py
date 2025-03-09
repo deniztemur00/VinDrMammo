@@ -16,18 +16,16 @@ class Trainer:
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader = None,
         epochs: int = 10,
-        lr: float = 1e-3,
         save_dir: str = "models/",
         name: str = None,
     ):
         self.model = model
-
         self.param_groups = [
             {"params": model.backbone.parameters(), "lr": 1e-5},
             {"params": model.detector.head.parameters(), "lr": 1e-4},
             # {"params": model.detector.parameters(), "lr": 1e-4},  # Detection head
             {"params": model.birads_head.parameters(), "lr": 2e-4},  # Auxiliary heads
-            {"params": model.density_head.parameters(), "lr": 2e-4}, # Auxiliary heads
+            {"params": model.density_head.parameters(), "lr": 2e-4},  # Auxiliary heads
         ]
         self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=0.01)
         self.box_loss = nn.SmoothL1Loss()
@@ -104,7 +102,7 @@ class Trainer:
                     train_loader.set_postfix(
                         {
                             "cls_loss": f"{loss_dict['classification'].item():.4f}",
-                            "reg_loss": f"{loss_dict['box_reg'].item():.4f}",
+                            "bbox_loss": f"{loss_dict['box_reg'].item():.4f}",
                             "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
                             "density_loss": f"{loss_dict['density_loss'].item():.4f}",
                             "avg_curr_loss": f"{current_loss:.4f}",
@@ -135,7 +133,7 @@ class Trainer:
             self.save_loss_plot()
         except KeyboardInterrupt:
             print("Training interrupted. Saving model...")
-            self.save(os.path.join(self.save_dir, "interrupted_model.pth"))
+            self.save(os.path.join(self.save_dir, f"{self.name}_interrupted_model.pth"))
             self.save_loss_plot()
 
     @torch.no_grad()
@@ -169,7 +167,7 @@ class Trainer:
             density_logits = outputs["density_logits"]
 
             # Calculate losses
-            loss, loss_dict = self.eval_loss(
+            loss, loss_dict = self.eval_loss_multi(
                 detections, birads_logits, density_logits, targets
             )
             val_loss += loss.item()
@@ -267,6 +265,51 @@ class Trainer:
                     det[key] = det[key][valid]
         return detections
 
+    def eval_loss_multi(self, detections, birads_logits, density_logits, targets):
+        # Detection loss (Smooth L1 on boxes)
+        detection_loss = torch.tensor(0.0, device=self.device)
+        total_boxes = 0
+
+        for det, tgt in zip(detections, targets):
+            if len(det["boxes"]) == 0 or len(tgt["boxes"]) == 0:
+                continue
+
+            # Calculate IoU matrix between predictions and targets
+            ious = box_iou(det["boxes"], tgt["boxes"])
+
+            if ious.numel() > 0:
+                # For each ground truth box, find best matching prediction
+                best_match_idx = ious.argmax(dim=0)
+
+                # Calculate loss only for the best-matching prediction for each GT box
+                matched_boxes = det["boxes"][best_match_idx]
+                box_loss = self.box_loss(matched_boxes, tgt["boxes"])
+
+                # Add to total loss, weighted by number of boxes
+                detection_loss += box_loss * len(tgt["boxes"])
+                total_boxes += len(tgt["boxes"])
+
+        # Classification losses
+        birads_targets = torch.stack([t["birads"] for t in targets]).long().flatten()
+        density_targets = torch.stack([t["density"] for t in targets]).long().flatten()
+
+        birads_loss = self.birads_loss(birads_logits, birads_targets)
+        density_loss = self.density_loss(density_logits, density_targets)
+
+        # Normalize detection loss by total number of ground truth boxes
+        if total_boxes > 0:
+            detection_loss /= total_boxes
+
+        # Combine losses
+        total_loss = detection_loss + (birads_loss * 0.5 + density_loss * 0.3)
+
+        return total_loss, {
+            "detection_loss": detection_loss,
+            "birads_loss": birads_loss,
+            "density_loss": density_loss,
+        }
+
+    """
     def eval_loss(self, detections, birads_logits, density_logits, targets):
         # Detection loss (Smooth L1 on boxes)
         detection_loss = torch.tensor(0.0, device=self.device)
@@ -300,6 +343,7 @@ class Trainer:
             "birads_loss": birads_loss,
             "density_loss": density_loss,
         }
+    """
 
     def save(self, filename):
         torch.save(self.model.state_dict(), filename)
