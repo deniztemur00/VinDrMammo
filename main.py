@@ -1,7 +1,7 @@
 import argparse
-import pandas as pd
-from inference import MammographyInference
-from dataset_v2 import MammographyDataset
+#import pandas as pd
+from src.inference import MammographyInference
+#from dataset_v2 import MammographyDataset
 
 
 INTER_NAME = "vindr-mammo-a-large-scale-benchmark-dataset-for-computer-aided-detection-and-diagnosis-in-full-field-digital-mammography-1.0.0/images"
@@ -12,7 +12,7 @@ def main():
     #parser.add_argument("--model_path", type=str, required=True, help="Path to the model file.")
     #parser.add_argument("--csv_path", type=str, required=True, help="Path to the CSV file with metadata.")
     #parser.add_argument("--inter_name", type=str, required=True, help="Intermediate name for DICOM path.")
-    parser.add_argument("--dicom_path", type=str, required=True, help="Path to the dicom image.")
+    parser.add_argument("--dicom_path", type=str, required=True, help="Path to the dicom image.",default="C:\\Users\\user\\Desktop\\Omnia\\Projects\\VinDrMammo\\data\\ba7141730b8ec902693c05c0f3119698.dicom")
     #parser.add_argument("--idx", type=int, default=-1, help="Index of the test sample to run inference on.")
     args = parser.parse_args()
 
@@ -31,3 +31,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+##! example: python main.py --dicom_path C:\Users\user\Desktop\Omnia\Projects\VinDrMammo\data\480b6699cf40d11d14b4ce7ecdd0d6eb.dicom
