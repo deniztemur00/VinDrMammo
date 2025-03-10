@@ -162,18 +162,18 @@ class MammographyDataset(Dataset):
         }
 
     def _get_annotations(self, row) -> Dict[str, torch.Tensor]:
-        w_scale = self.img_size[1] / row.width
-        h_scale = self.img_size[0] / row.height
+        w_scale = self.img_size[1] / row.cropped_width
+        h_scale = self.img_size[0] / row.cropped_height  
 
         boxes = []
         labels = []
 
         finding = row.mapped_category.strip()
         if finding != "No Finding" and not pd.isna(row.xmin):
-            xmin = row.xmin * w_scale
-            ymin = row.ymin * h_scale
-            xmax = row.xmax * w_scale
-            ymax = row.ymax * h_scale
+            xmin = row.cropped_xmin * w_scale
+            ymin = row.cropped_ymin * h_scale
+            xmax = row.cropped_xmax * w_scale
+            ymax = row.cropped_ymax * h_scale
             boxes.append([xmin, ymin, xmax, ymax])
 
             labels.append(self.cat2idx.get(finding, len(self.cat2idx) - 1))
