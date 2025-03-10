@@ -17,8 +17,8 @@ class RetinaNetConfig:
     trainable_backbone_layers: int = 5
     num_classes: int = 11  # 10 findings + "Other"
     num_birads_classes: int = 5  # BI-RADS 1-5
-    num_density_classes: int = 4  # Density A-D
-    detections_per_img: int = 100
+    #num_density_classes: int = 4  # Density A-D
+    detections_per_img: int = 10
     top_k_candidates: int = 200
     nms_thresh: float = 0.6
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
@@ -40,7 +40,7 @@ class RetinaNetConfig:
     aspect_ratios = ((0.67, 1.09, 1.57),) * 5
     # aspect_ratios = ((0.5, 1.0, 2.0),) * 5
     birads_loss_weight = 0.5  # Weight for BI-RADS/density losses
-    density_loss_weight = 0.3
+    #density_loss_weight = 0.3
 
 
 class CustomRetinaNet(nn.Module):
@@ -83,21 +83,21 @@ class CustomRetinaNet(nn.Module):
             nn.Dropout(0.1),
             nn.Linear(512, config.num_birads_classes),
         )
-
-        self.density_head = nn.Sequential(
-            nn.Conv2d(256, 512, kernel_size=5, padding=1),
-            nn.MaxPool2d(4),
-            # nn.AdaptiveAvgPool2d(2),
-            nn.Flatten(),
-            nn.Linear(2048, 512),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(512, config.num_density_classes),
-        )
+        ### Remove density head
+        #self.density_head = nn.Sequential(
+        #    nn.Conv2d(256, 512, kernel_size=5, padding=1),
+        #    nn.MaxPool2d(4),
+        #    # nn.AdaptiveAvgPool2d(2),
+        #    nn.Flatten(),
+        #    nn.Linear(2048, 512),
+        #    nn.ReLU(),
+        #    nn.Dropout(0.1),
+        #    nn.Linear(512, config.num_density_classes),
+        #)
 
         # Loss functions
         self.birads_loss_fn = nn.CrossEntropyLoss()
-        self.density_loss_fn = nn.CrossEntropyLoss()
+        #self.density_loss_fn = nn.CrossEntropyLoss()
 
         # Feature hooks
         self.feature_maps = None
@@ -138,33 +138,33 @@ class CustomRetinaNet(nn.Module):
 
         # Multi-task predictions
         birads_logits = self.birads_head(features)
-        density_logits = self.density_head(features)
+        #density_logits = self.density_head(features)
 
         if self.training:
             # Calculate auxiliary losses
             birads_targets = torch.cat([t["birads"] for t in targets])
-            density_targets = torch.cat([t["density"] for t in targets])
+            #density_targets = torch.cat([t["density"] for t in targets])
             birads_loss = self.birads_loss_fn(birads_logits, birads_targets)
-            density_loss = self.density_loss_fn(density_logits, density_targets)
+            #density_loss = self.density_loss_fn(density_logits, density_targets)
 
             # Combine losses
             total_loss = (
                 sum(detector_losses.values())
                 + self.config.birads_loss_weight * birads_loss
-                + self.config.density_loss_weight * density_loss
+                #+ self.config.density_loss_weight * density_loss
             )
 
             return {
                 "classification": detector_losses["classification"],
                 "box_reg": detector_losses["bbox_regression"],
                 "birads_loss": birads_loss,
-                "density_loss": density_loss,
+                #"density_loss": density_loss,
                 "total_loss": total_loss,
             }
         else:
             return {
                 "detections": detections,
                 "birads_logits": birads_logits,
-                "density_logits": density_logits,
+                #"density_logits": density_logits,
                 "features": features,
             }

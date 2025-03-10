@@ -1,0 +1,3 @@
+python dicom2png_multi.py -i C:\Users\user\Desktop\Omnia\Projects\VinDrMammo\data -o C:\Users\user\Desktop\Omnia\Projects\VinDrMammo\data_output
+
+python yolo_crop.py 

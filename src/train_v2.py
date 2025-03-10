@@ -22,10 +22,10 @@ class Trainer:
         self.model = model
         self.param_groups = [
             {"params": model.backbone.parameters(), "lr": 1e-5},
-            {"params": model.detector.head.parameters(), "lr": 1e-4},
+            {"params": model.detector.head.parameters(), "lr": 7e-4},
             # {"params": model.detector.parameters(), "lr": 1e-4},  # Detection head
-            {"params": model.birads_head.parameters(), "lr": 2e-4},  # Auxiliary heads
-            {"params": model.density_head.parameters(), "lr": 2e-4},  # Auxiliary heads
+            {"params": model.birads_head.parameters(), "lr": 5e-4},  # Auxiliary heads
+            #{"params": model.density_head.parameters(), "lr": 2e-4},  # Auxiliary heads
         ]
         self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=0.01)
         self.box_loss = nn.SmoothL1Loss()
@@ -35,7 +35,7 @@ class Trainer:
             class_metrics=True,
         )
         self.birads_loss = nn.CrossEntropyLoss()
-        self.density_loss = nn.CrossEntropyLoss()
+        #self.density_loss = nn.CrossEntropyLoss()
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -104,7 +104,7 @@ class Trainer:
                             "cls_loss": f"{loss_dict['classification'].item():.4f}",
                             "bbox_loss": f"{loss_dict['box_reg'].item():.4f}",
                             "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
-                            "density_loss": f"{loss_dict['density_loss'].item():.4f}",
+                            #"density_loss": f"{loss_dict['density_loss'].item():.4f}",
                             "avg_curr_loss": f"{current_loss:.4f}",
                             "LR": f"{lr:.5f}",
                         }
@@ -142,8 +142,8 @@ class Trainer:
         val_loss = 0.0
         birad_preds = []
         birad_targets = []
-        density_preds = []
-        density_targets = []
+        #density_preds = []
+        #density_targets = []
         detections_list = []
         targets_list = []
 
@@ -164,11 +164,11 @@ class Trainer:
 
             detections = self.keep_detections(detections)
             birads_logits = outputs["birads_logits"]
-            density_logits = outputs["density_logits"]
+            #density_logits = outputs["density_logits"]
 
             # Calculate losses
             loss, loss_dict = self.eval_loss_multi(
-                detections, birads_logits, density_logits, targets
+                detections, birads_logits, targets
             )
             val_loss += loss.item()
 
@@ -178,10 +178,10 @@ class Trainer:
                 torch.stack([t["birads"] for t in targets]).cpu().numpy()
             )
 
-            density_preds.extend(torch.argmax(density_logits, dim=1).cpu().numpy())
-            density_targets.extend(
-                torch.stack([t["density"] for t in targets]).cpu().numpy()
-            )
+            #density_preds.extend(torch.argmax(density_logits, dim=1).cpu().numpy())
+            #density_targets.extend(
+            #    torch.stack([t["density"] for t in targets]).cpu().numpy()
+            #)
 
             # Update detection metrics
 
@@ -194,19 +194,19 @@ class Trainer:
             targets_list.extend(targets)
 
             birad_results = evaluate_classification(birad_preds, birad_targets)
-            density_results = evaluate_classification(
-                density_preds, density_targets, task="density"
-            )
+            #density_results = evaluate_classification(
+            #    density_preds, density_targets, task="density"
+            #)
 
             # Update progress bar
             val_loader.set_postfix(
                 {
                     "mAP": f"{map_results['map'].item():.4f}",
                     "birads_f1": f"{birad_results['f1']:.4f}",
-                    "density_f1": f"{density_results['f1']:.4f}",
+                    #"density_f1": f"{density_results['f1']:.4f}",
                     "det_loss": f"{loss_dict['detection_loss'].item():.4f}",
                     "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
-                    "density_loss": f"{loss_dict['density_loss'].item():.4f}",
+                    #"density_loss": f"{loss_dict['density_loss'].item():.4f}",
                     "avg_curr_loss": f"{loss.item():.4f}",
                 }
             )
@@ -224,8 +224,8 @@ class Trainer:
             "val_loss": val_loss,
             "birad_results": birad_preds,
             "birad_targets": birad_targets,
-            "density_results": density_preds,
-            "density_targets": density_targets,
+            #"density_results": density_preds,
+            #"density_targets": density_targets,
             "detections": detections_list,
             "targets": targets_list,
             "map_results": map_results,
@@ -265,7 +265,7 @@ class Trainer:
                     det[key] = det[key][valid]
         return detections
 
-    def eval_loss_multi(self, detections, birads_logits, density_logits, targets):
+    def eval_loss_multi(self, detections, birads_logits, targets):
         # Detection loss (Smooth L1 on boxes)
         detection_loss = torch.tensor(0.0, device=self.device)
         total_boxes = 0
@@ -291,22 +291,22 @@ class Trainer:
 
         # Classification losses
         birads_targets = torch.stack([t["birads"] for t in targets]).long().flatten()
-        density_targets = torch.stack([t["density"] for t in targets]).long().flatten()
+        #density_targets = torch.stack([t["density"] for t in targets]).long().flatten()
 
         birads_loss = self.birads_loss(birads_logits, birads_targets)
-        density_loss = self.density_loss(density_logits, density_targets)
+        #density_loss = self.density_loss(density_logits, density_targets)
 
         # Normalize detection loss by total number of ground truth boxes
         if total_boxes > 0:
             detection_loss /= total_boxes
 
         # Combine losses
-        total_loss = detection_loss + (birads_loss * 0.5 + density_loss * 0.3)
+        total_loss = detection_loss + (birads_loss * 0.5) #+ density_loss * 0.3)
 
         return total_loss, {
             "detection_loss": detection_loss,
             "birads_loss": birads_loss,
-            "density_loss": density_loss,
+            #"density_loss": density_loss,
         }
 
     """

@@ -6,6 +6,7 @@ from retinanet_v2 import CustomRetinaNet, RetinaNetConfig
 from matplotlib import pyplot as plt
 import torch.nn.functional as F
 from typing import Dict
+from PIL import Image
 
 
 class MammographyInference:
@@ -68,7 +69,7 @@ class MammographyInference:
             ]
         )
 
-    def preprocess_image(self, dicom_path: str) -> torch.Tensor:
+    def preprocess_image_dicom(self, dicom_path: str) -> torch.Tensor:
         """Preprocess DICOM image following dataset preprocessing"""
         # Convert DICOM to PNG using existing utility
         png_img = convert_dicom_to_png(dicom_path)
@@ -81,10 +82,19 @@ class MammographyInference:
         img = img.to(self.device)
         return img.unsqueeze(0)
 
+    def preprocess_image_png(self, png_path: str) -> torch.Tensor:
+
+        img = np.array(Image.open(png_path))
+        img = img.astype(np.float32)
+        img = (img - img.min()) / (img.max() - img.min() + 1e-10)
+        img = np.stack([img] * 3, axis=-1)
+
+        return self.transform(img)
+
     @torch.no_grad()
     def predict(
         self,
-        dicom_path: str,
+        img_path: str,
         top_k: int = 3,
         visualize: bool = False,
         conf_threshold: float = 0.2,
@@ -104,7 +114,7 @@ class MammographyInference:
                 - birads: BIRADS classification probabilities
                 - density: Density classification probabilities
         """
-        img = self.preprocess_image(dicom_path)
+        img = self.preprocess_image_png(img_path)
         with torch.no_grad():
             outputs = self.model(img)
 
