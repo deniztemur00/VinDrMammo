@@ -182,11 +182,25 @@ def generate_list(result_dict, task: str = "detection") -> tuple[list, list]:
 
     if task == "detection":
         for det, tgt in zip(result_dict["detections"], result_dict["targets"]):
-            tgt_label = tgt["labels"].item()
-            det_pred = det["labels"][0].item()
+            
+            if tgt["labels"].numel() > 1:
+                tgt_labels = tgt["labels"].cpu().tolist()
+            else:
+                tgt_labels = [tgt["labels"].item()]
 
-            preds.append(det_pred)
-            labels.append(tgt_label)
+            
+            if det["labels"].numel() > 1:
+                # Take the highest confidence prediction
+                best_idx = torch.argmax(det["scores"]).item()
+                det_pred = det["labels"][best_idx].item()
+            else:
+                # Single prediction case
+                det_pred = det["labels"].item() if det["labels"].numel() > 0 else -1
+
+            # For multiple ground truths, duplicate the prediction
+            for tgt_label in tgt_labels:
+                preds.append(det_pred)
+                labels.append(tgt_label)
 
         return labels, preds
 
@@ -198,6 +212,10 @@ def generate_list(result_dict, task: str = "detection") -> tuple[list, list]:
         return labels, preds
 
     if task == "density":
+
+        if "density_results" not in result_dict:
+            return [], []
+
         for det, tgt in zip(
             result_dict["density_results"], result_dict["density_targets"]
         ):
