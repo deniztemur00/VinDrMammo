@@ -88,8 +88,9 @@ class MammographyInference:
         img = img.astype(np.float32)
         img = (img - img.min()) / (img.max() - img.min() + 1e-10)
         img = np.stack([img] * 3, axis=-1)
-
-        return self.transform(img)
+        img = self.transform(img)
+        img = img.to(self.device)
+        return img.unsqueeze(0)
 
     @torch.no_grad()
     def predict(
@@ -184,9 +185,7 @@ class MammographyInference:
 
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
         ax.imshow(img)
-        botttom_text = (
-            f"{birads}: {birads_confidence:.4f}\n{density}: {density_confidence:.4f}"
-        )
+        botttom_text = f"{birads}: {birads_confidence:.4f}\n"  # {density}: {density_confidence:.4f}
         for box, score, label in zip(boxes, scores, labels):
             category = self.finding_categories[label.item()]
             score = score.item()
