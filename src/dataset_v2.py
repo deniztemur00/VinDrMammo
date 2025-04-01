@@ -105,16 +105,16 @@ class MammographyDataset(Dataset):
         Handles entries where xmin, ymin, xmax, ymax, and mapped_category are already in list format.
         Also handles "No Findings" cases where these lists may be empty.
         """
-        h_scale = self.img_size[0] / row.height
-        w_scale = self.img_size[1] / row.width
+        h_scale = self.img_size[0] / row.cropped_height
+        w_scale = self.img_size[1] / row.cropped_width
 
         boxes = []
         labels = []
 
-        xmins = ast.literal_eval(row.xmin)
-        ymins = ast.literal_eval(row.ymin)
-        xmaxs = ast.literal_eval(row.xmax)
-        ymaxs = ast.literal_eval(row.ymax)
+        xmins = ast.literal_eval(row.cropped_xmin)
+        ymins = ast.literal_eval(row.cropped_ymin)
+        xmaxs = ast.literal_eval(row.cropped_xmax)
+        ymaxs = ast.literal_eval(row.cropped_ymax)
         categories = ast.literal_eval(row.mapped_category)
 
         # Ensure all lists have the same length
