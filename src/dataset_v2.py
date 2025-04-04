@@ -6,6 +6,9 @@ from torchvision import transforms
 import torch
 from typing import Dict, List, Tuple
 import ast
+import cv2
+import albumentations as A
+
 
 # Simplified class mapping based on Table 4
 FINDING_CATEGORIES = [
@@ -21,7 +24,12 @@ FINDING_CATEGORIES = [
     "Suspicious Lymph Node",
     "Other",
 ]
-CAT2IDX = {cat: idx for idx, cat in enumerate(FINDING_CATEGORIES)}
+FINDING_CATEGORIES_TOP3 = [
+    "Mass",
+    "Suspicious Calcification",
+    "Focal Asymmetry",
+]
+CAT2IDX = {cat: idx for idx, cat in enumerate(FINDING_CATEGORIES_TOP3)}
 
 IDX2CAT = {idx: cat for cat, idx in CAT2IDX.items()}
 
@@ -64,20 +72,60 @@ class MammographyDataset(Dataset):
             ]
         )
 
+        self.resample_augment = A.Compose(
+            [
+                # Spatial transforms (affect both image and bounding boxes)
+                A.ShiftScaleRotate(
+                    shift_limit=0.05,  # Conservative shift
+                    scale_limit=0.1,  # Subtle scaling
+                    rotate_limit=15,  # Small rotations
+                    p=0.8,
+                    border_mode=cv2.BORDER_CONSTANT,
+                    value=0,
+                ),
+                A.BBoxSafeRandomCrop(),
+                # Optional horizontal flip - use with caution for mammography
+                # as it may change laterality interpretation
+                A.HorizontalFlip(p=0.6),
+                # Pixel-level transforms (don't affect bounding boxes)
+                A.RandomBrightnessContrast(
+                    brightness_limit=0.1, contrast_limit=0.1, p=0.7
+                ),
+                A.GaussianBlur(
+                    blur_limit=3, p=0.3
+                ),  # Simulates slight focus variations
+                A.GaussNoise(var_limit=(5.0, 15.0), p=0.2),  # Subtle noise
+                # For mammography, CLAHE can enhance contrast in dense regions
+                A.CLAHE(clip_limit=2.0, p=0.5),
+            ],
+            bbox_params=A.BboxParams(
+                format="pascal_voc",
+                label_fields=["class_labels"],
+                min_visibility=0.3,  # Ensure boxes remain mostly visible
+            ),
+        )
+
     def __len__(self) -> int:
         return len(self.df)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict]:
         row = self.df.iloc[idx]
+        is_oversampled = row.get("is_oversampled", False)
 
         if self.png_converted:
             image = self._load_image_png(row)
-            target = self._get_annotation_agg(row)
+            #target = self._get_annotation_agg(row)
+            target = self._get_annotations(row)
         else:
             image = self._load_image_dicom(row)
             target = self._get_annotations(row)
 
+        if is_oversampled:
+            image, target = self.apply_augmentations_to_resample(image, target)
+        
         return image, target
+
+
 
     def _load_image_png(self, row) -> torch.Tensor:
 
@@ -163,7 +211,7 @@ class MammographyDataset(Dataset):
 
     def _get_annotations(self, row) -> Dict[str, torch.Tensor]:
         w_scale = self.img_size[1] / row.cropped_width
-        h_scale = self.img_size[0] / row.cropped_height  
+        h_scale = self.img_size[0] / row.cropped_height
 
         boxes = []
         labels = []
@@ -196,6 +244,37 @@ class MammographyDataset(Dataset):
                 [self.density_idx[row.breast_density]], dtype=torch.long
             ),
         }
+
+    import numpy as np
+
+    def apply_augmentations_to_resample(
+        self,image: torch.Tensor, target: Dict[str, torch.Tensor]
+    ):
+
+        if isinstance(image, torch.Tensor):
+            np_image = image.permute(1, 2, 0).numpy()
+        else:
+            np_image = image
+            
+        
+        boxes = target['boxes'].numpy() if len(target['boxes']) > 0 else np.zeros((0, 4))
+        labels = target['labels'].numpy() if len(target['labels']) > 0 else np.zeros(0)
+        
+        # Skip augmentation if no valid boxes
+        if len(boxes) > 0:
+            # Apply augmentations
+            augmented = self.resample_augment(
+                image=np_image,
+                bboxes=boxes.tolist(),
+                class_labels=labels.tolist()
+            )
+            
+            # Update image and boxes
+            image = self.transform(augmented['image'])
+            if augmented['bboxes']:
+                target['boxes'] = torch.tensor(augmented['bboxes'], dtype=torch.float32)
+    
+        return image, target
 
 
 def collate_fn(batch):
