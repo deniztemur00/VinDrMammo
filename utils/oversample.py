@@ -89,19 +89,25 @@ def oversample_minority_classes(
 
 def main():
 
-    last_df = pd.read_csv("../metadata/final_aggregated_findings_cropped.csv")
+    last_df = pd.read_csv("../metadata/final_aggregated_findings_cropped_top3.csv")
     final_df = oversample_minority_classes(last_df.copy())
+
 
     # Now use 'final_df' in your data loading process
     print(
-        final_df.groupby(["mapped_category", "breast_birads"])
+        final_df.groupby(["mapped_category","fold"])
         .size()
         .reset_index(name="counts")
         .sort_values(by="counts", ascending=False)
     )
 
     print(
-        final_df.groupby(["fold", "is_oversampled"]).size().reset_index(name="counts")
+        final_df.groupby(["fold",]).size().reset_index(name="counts")
+    )
+
+    print(final_df.describe())
+    final_df.to_csv(
+        "../metadata/oversampled_aggregated_cropped_top3.csv", index=False
     )
 
 
