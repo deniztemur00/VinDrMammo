@@ -33,6 +33,12 @@ class MammographyInference:
             "Suspicious Lymph Node",
             "Other",
         ]
+
+        self.finding_categories_top3 = [
+            "Mass",
+            "Suspicious Calcification",
+            "Focal Asymmetry",
+        ]
         self.finding_birads = [
             # "BIRADS-1",
             "BIRADS-2",
@@ -157,7 +163,7 @@ class MammographyInference:
             )
 
         top_labels = top_labels.cpu().numpy()[0]
-        top_category = self.finding_categories[top_labels]
+        top_category = self.finding_categories_top3[top_labels]
         inference_dict = {
             "boxes": top_boxes.cpu().numpy()[0],
             "finding_category": top_category,
@@ -187,7 +193,7 @@ class MammographyInference:
         ax.imshow(img)
         botttom_text = f"{birads}: {birads_confidence:.4f}\n"  # {density}: {density_confidence:.4f}
         for box, score, label in zip(boxes, scores, labels):
-            category = self.finding_categories[label.item()]
+            category = self.finding_categories_top3[label.item()]
             score = score.item()
             x1, y1, x2, y2 = box
             ax.add_patch(
@@ -214,7 +220,7 @@ class MammographyInference:
         ax.imshow(img)
         birads = self.birad_categories[target["birads"].item()]
         density = self.density_categories[target["density"].item()]
-        category = self.finding_categories[target["labels"].item()]
+        category = self.finding_categories_top3[target["labels"].item()]
 
         bottom_text = f"{birads}\n{density}"
         for box, label in zip(target["boxes"], target["labels"]):
