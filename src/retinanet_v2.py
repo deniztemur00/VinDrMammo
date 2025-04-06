@@ -15,22 +15,14 @@ from matplotlib import pyplot as plt
 class RetinaNetConfig:
     backbone: str = "resnet101"
     trainable_backbone_layers: int = 5
-    num_classes: int = 11  # 10 findings + "Other"
-    num_birads_classes: int = (
-        5  # BI-RADS 1-5num_density_classes: int = 4  # Density A-D
-    )
+    num_classes: int = 3  # 10 findings + "Other"
+    num_birads_classes: int = 5  # BI-RADS 1-5
+    num_density_classes: int = 4  # Density A-D
     detections_per_img: int = 10
     top_k_candidates: int = 100
     nms_thresh: float = 0.5
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
-    # anchor_sizes = (
-    #    (16, 32, 64),
-    #    (32, 64, 128),
-    #    (64, 128, 256),
-    #    (128, 256, 512),
-    #    (256, 512, 1024),
-    # )
     anchor_sizes = (
         (32.4, 64.9, 106.9),
         (64.9, 106.9, 168.3),
@@ -39,7 +31,6 @@ class RetinaNetConfig:
         (269.6, 400.0, 600.0),
     )
     aspect_ratios = ((0.67, 1.09, 1.57),) * 5
-    # aspect_ratios = ((0.5, 1.0, 2.0),) * 5
     birads_loss_weight = 0.7  # Weight for BI-RADS/density losses
     density_loss_weight = 0.3
 
@@ -123,7 +114,7 @@ class CustomRetinaNet(nn.Module):
         self.spatial_attention = SpatialAttention(in_channels=256)
 
         self.birads_head = BIRADSHead(num_classes=config.num_birads_classes)
-        self.density_head = DensityHead(num_classes=config.num_birads_classes)
+        self.density_head = DensityHead(num_classes=config.num_density_classes)
         # Loss functions
         self.birads_loss_fn = nn.CrossEntropyLoss()
         self.density_loss_fn = nn.CrossEntropyLoss()
