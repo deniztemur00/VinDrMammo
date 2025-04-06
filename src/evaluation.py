@@ -31,6 +31,12 @@ FINDING_CATEGORIES = [
     "Suspicious Lymph Node",
     "Other",
 ]
+
+FINDING_CATEGORIES_TOP3 = [
+    "Mass",
+    "Suspicious Calcification",
+    "Focal Asymmetry",
+]
 ALL_BIRADS = [
     "BI-RADS 1",
     "BI-RADS 2",
@@ -259,8 +265,8 @@ def top_5_detections(result_dict):
     all_pred_top5_binary = []
 
     # Initialize storage for ROC AUC (class-wise scores and labels)
-    class_scores = {i: [] for i in range(len(FINDING_CATEGORIES))}
-    class_true = {i: [] for i in range(len(FINDING_CATEGORIES))}
+    class_scores = {i: [] for i in range(len(FINDING_CATEGORIES_TOP3))}
+    class_true = {i: [] for i in range(len(FINDING_CATEGORIES_TOP3))}
 
     for idx in range(len(result_dict["detections"])):
         dets = result_dict["detections"][idx]
@@ -282,13 +288,13 @@ def top_5_detections(result_dict):
         predicted_labels = np.unique(top5_labels)  # Deduplicate
 
         # Create binary vectors for true and predicted
-        true_binary = np.zeros(len(FINDING_CATEGORIES), dtype=int)
-        pred_binary = np.zeros(len(FINDING_CATEGORIES), dtype=int)
+        true_binary = np.zeros(len(FINDING_CATEGORIES_TOP3), dtype=int)
+        pred_binary = np.zeros(len(FINDING_CATEGORIES_TOP3), dtype=int)
         for lbl in unique_true_labels:
-            if lbl < len(FINDING_CATEGORIES):
+            if lbl < len(FINDING_CATEGORIES_TOP3):
                 true_binary[lbl] = 1
         for lbl in predicted_labels:
-            if lbl < len(FINDING_CATEGORIES):
+            if lbl < len(FINDING_CATEGORIES_TOP3):
                 pred_binary[lbl] = 1
         all_true_binary.append(true_binary)
         all_pred_top5_binary.append(pred_binary)
@@ -302,8 +308,8 @@ def top_5_detections(result_dict):
 def roc_auc(result_dict):
 
     # Initialize storage for ROC AUC (class-wise scores and labels)
-    class_scores = {i: [] for i in range(len(FINDING_CATEGORIES))}
-    class_true = {i: [] for i in range(len(FINDING_CATEGORIES))}
+    class_scores = {i: [] for i in range(len(FINDING_CATEGORIES_TOP3))}
+    class_true = {i: [] for i in range(len(FINDING_CATEGORIES_TOP3))}
 
     for idx in range(len(result_dict["detections"])):
         dets = result_dict["detections"][idx]
@@ -316,7 +322,7 @@ def roc_auc(result_dict):
         det_labels = dets["labels"].cpu().numpy().flatten()
         # --- ROC AUC Preparation ---
         # For each class, store max detection score and its true presence
-        for class_idx in range(len(FINDING_CATEGORIES)):
+        for class_idx in range(len(FINDING_CATEGORIES_TOP3)):
             class_mask = det_labels == class_idx
             if np.any(class_mask):
                 max_score = np.max(det_scores[class_mask])
@@ -330,7 +336,7 @@ def roc_auc(result_dict):
 
 def visualize_roc_auc(class_scores, class_true):
     plt.figure(figsize=(10, 8))
-    for class_idx, class_name in enumerate(FINDING_CATEGORIES):
+    for class_idx, class_name in enumerate(FINDING_CATEGORIES_TOP3):
         scores = np.array(class_scores[class_idx])
         true = np.array(class_true[class_idx])
 
