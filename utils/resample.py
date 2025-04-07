@@ -3,14 +3,14 @@ import numpy as np
 from sklearn.utils import resample
 
 
-def oversample_minority_classes(
+def resample_minority_classes(
     df,
     target_column="mapped_category",
     birads_column="breast_birads",
     fold_column="fold",
 ):
     """
-    Oversamples minority classes in a DataFrame, considering the 'fold' column.
+    Resamples minority classes in a DataFrame, considering the 'fold' column.
 
     Args:
         df (pd.DataFrame): The input DataFrame.
@@ -19,8 +19,8 @@ def oversample_minority_classes(
         fold_column (str): The name of the column indicating the fold (e.g., 'training', 'test').
 
     Returns:
-        pd.DataFrame: A new DataFrame with oversampled minority classes in the training fold,
-                      and an 'is_oversampled' column.
+        pd.DataFrame: A new DataFrame with resampled minority classes in the training fold,
+                      and an 'is_resampled' column.
     """
 
     # 1. Separate training data
@@ -35,8 +35,8 @@ def oversample_minority_classes(
     )
     max_count = class_counts["counts"].max()
 
-    # 3. Create a list to store oversampled DataFrames
-    oversampled_dfs = []
+    # 3. Create a list to store resampled DataFrames
+    resampled_dfs = []
 
     # 4. Iterate through each unique class and BIRADS combination
     for _, row in class_counts.iterrows():
@@ -44,7 +44,7 @@ def oversample_minority_classes(
         birads_value = row[birads_column]
         count = row["counts"]
 
-        # 5. Oversample if the count is less than the maximum count
+        # 5. Resample if the count is less than the maximum count
         if count < max_count:
             # Filter the training DataFrame to get the samples belonging to this class and BIRADS
             class_df = train_df[
@@ -56,33 +56,33 @@ def oversample_minority_classes(
             n_samples_to_add = max_count - count
 
             # Resample with replacement to create new samples
-            oversampled_class_df = resample(
+            resampled_class_df = resample(
                 class_df, replace=True, n_samples=n_samples_to_add, random_state=42
             )
 
-            # Add the 'is_oversampled' column
-            oversampled_class_df["is_oversampled"] = True
+            # Add the 'is_resampled' column
+            resampled_class_df["is_resampled"] = True
 
-            # Append the oversampled DataFrame to the list
-            oversampled_dfs.append(oversampled_class_df)
+            # Append the resampled DataFrame to the list
+            resampled_dfs.append(resampled_class_df)
 
-    # 6. Concatenate the oversampled DataFrames with the original training DataFrame
-    if oversampled_dfs:
-        oversampled_train_df = pd.concat(
-            [train_df] + oversampled_dfs, ignore_index=True
+    # 6. Concatenate the resampled DataFrames with the original training DataFrame
+    if resampled_dfs:
+        resampled_train_df = pd.concat(
+            [train_df] + resampled_dfs, ignore_index=True
         )
     else:
-        oversampled_train_df = train_df.copy()
+        resampled_train_df = train_df.copy()
 
-    # 7. Add 'is_oversampled' column to original training data and test data
-    oversampled_train_df["is_oversampled"] = oversampled_train_df.get(
-        "is_oversampled", False
+    # 7. Add 'is_resampled' column to original training data and test data
+    resampled_train_df["is_resampled"] = resampled_train_df.get(
+        "is_resampled", False
     )
     test_df = df[df[fold_column] == "test"].copy()
-    test_df["is_oversampled"] = False
+    test_df["is_resampled"] = False
 
     # 8. Concatenate training and test DataFrames
-    final_df = pd.concat([oversampled_train_df, test_df], ignore_index=True)
+    final_df = pd.concat([resampled_train_df, test_df], ignore_index=True)
 
     return final_df
 
@@ -90,7 +90,7 @@ def oversample_minority_classes(
 def main():
 
     last_df = pd.read_csv("../metadata/final_aggregated_findings_cropped_top3.csv")
-    final_df = oversample_minority_classes(last_df.copy())
+    final_df = resample_minority_classes(last_df.copy())
 
 
     # Now use 'final_df' in your data loading process
@@ -107,7 +107,7 @@ def main():
 
     print(final_df.describe())
     final_df.to_csv(
-        "../metadata/oversampled_aggregated_cropped_top3.csv", index=False
+        "../metadata/resampled_aggregated_cropped_top3.csv", index=False
     )
 
 
