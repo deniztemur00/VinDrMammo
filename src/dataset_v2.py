@@ -105,7 +105,7 @@ class MammographyDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict]:
         row = self.df.iloc[idx]
-        is_oversampled = row.get("is_oversampled", False)
+        is_resampled = row.get("is_resampled", False)
 
         if self.png_converted:
             image = self._load_image_png(row)
@@ -115,7 +115,7 @@ class MammographyDataset(Dataset):
             image = self._load_image_dicom(row)
             target = self._get_annotations(row)
 
-        if is_oversampled:
+        if is_resampled:
             image, target = self.apply_augmentations_to_resample(image, target)
 
         return image, target
