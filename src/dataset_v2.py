@@ -81,7 +81,6 @@ class MammographyDataset(Dataset):
                     rotate_limit=15,  # Small rotations
                     p=0.8,
                     border_mode=cv2.BORDER_CONSTANT,
-                    value=0,
                 ),
                 A.BBoxSafeRandomCrop(),
                 # Optional horizontal flip - use with caution for mammography
@@ -94,7 +93,7 @@ class MammographyDataset(Dataset):
                 A.GaussianBlur(
                     blur_limit=3, p=0.3
                 ),  # Simulates slight focus variations
-                A.GaussNoise(var_limit=(5.0, 15.0), p=0.2),  # Subtle noise
+                A.GaussNoise(p=0.2),  # Subtle noise
                 # For mammography, CLAHE can enhance contrast in dense regions
                 A.CLAHE(clip_limit=2.0, p=0.5),
             ],
@@ -114,7 +113,7 @@ class MammographyDataset(Dataset):
 
         if self.png_converted:
             image = self._load_image_png(row)
-            #target = self._get_annotation_agg(row)
+            # target = self._get_annotation_agg(row)
             target = self._get_annotations(row)
         else:
             image = self._load_image_dicom(row)
@@ -122,10 +121,8 @@ class MammographyDataset(Dataset):
 
         if is_oversampled:
             image, target = self.apply_augmentations_to_resample(image, target)
-        
+
         return image, target
-
-
 
     def _load_image_png(self, row) -> torch.Tensor:
 
@@ -213,17 +210,35 @@ class MammographyDataset(Dataset):
         w_scale = self.img_size[1] / row.cropped_width
         h_scale = self.img_size[0] / row.cropped_height
 
+        # Parse coordinate strings
+        xmin = ast.literal_eval(row.cropped_xmin)
+        ymin = ast.literal_eval(row.cropped_ymin)
+        xmax = ast.literal_eval(row.cropped_xmax)
+        ymax = ast.literal_eval(row.cropped_ymax)
+        finding = str(row.mapped_category)
+
         boxes = []
         labels = []
 
-        finding = row.mapped_category.strip()
-        if finding != "No Finding" and not pd.isna(row.xmin):
-            xmin = row.cropped_xmin * w_scale
-            ymin = row.cropped_ymin * h_scale
-            xmax = row.cropped_xmax * w_scale
-            ymax = row.cropped_ymax * h_scale
-            boxes.append([xmin, ymin, xmax, ymax])
+        # Handle single category case (either as string or from a list with one item)
+        if isinstance(finding, list):
+            finding = finding[0]
 
+        # Handle coordinates (either as values or from lists with one item)
+        if isinstance(xmin, list):
+            xmin = xmin[0]
+            ymin = ymin[0]
+            xmax = xmax[0]
+            ymax = ymax[0]
+
+        if finding != "No Finding" and not pd.isna(row.xmin):
+            # Scale coordinates to target size
+            xmin_scaled = float(xmin) * w_scale
+            ymin_scaled = float(ymin) * h_scale
+            xmax_scaled = float(xmax) * w_scale
+            ymax_scaled = float(ymax) * h_scale
+
+            boxes.append([xmin_scaled, ymin_scaled, xmax_scaled, ymax_scaled])
             labels.append(self.cat2idx.get(finding, len(self.cat2idx) - 1))
 
         return {
@@ -245,35 +260,32 @@ class MammographyDataset(Dataset):
             ),
         }
 
-    import numpy as np
-
     def apply_augmentations_to_resample(
-        self,image: torch.Tensor, target: Dict[str, torch.Tensor]
+        self, image: torch.Tensor, target: Dict[str, torch.Tensor]
     ):
 
         if isinstance(image, torch.Tensor):
             np_image = image.permute(1, 2, 0).numpy()
         else:
             np_image = image
-            
-        
-        boxes = target['boxes'].numpy() if len(target['boxes']) > 0 else np.zeros((0, 4))
-        labels = target['labels'].numpy() if len(target['labels']) > 0 else np.zeros(0)
-        
+
+        boxes = (
+            target["boxes"].numpy() if len(target["boxes"]) > 0 else np.zeros((0, 4))
+        )
+        labels = target["labels"].numpy() if len(target["labels"]) > 0 else np.zeros(0)
+
         # Skip augmentation if no valid boxes
         if len(boxes) > 0:
             # Apply augmentations
             augmented = self.resample_augment(
-                image=np_image,
-                bboxes=boxes.tolist(),
-                class_labels=labels.tolist()
+                image=np_image, bboxes=boxes.tolist(), class_labels=labels.tolist()
             )
-            
+
             # Update image and boxes
-            image = self.transform(augmented['image'])
-            if augmented['bboxes']:
-                target['boxes'] = torch.tensor(augmented['bboxes'], dtype=torch.float32)
-    
+            image = self.transform(augmented["image"])
+            if augmented["bboxes"]:
+                target["boxes"] = torch.tensor(augmented["bboxes"], dtype=torch.float32)
+
         return image, target
 
 
