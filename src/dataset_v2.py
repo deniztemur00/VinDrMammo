@@ -75,14 +75,14 @@ class MammographyDataset(Dataset):
         self.resample_augment = A.Compose(
             [
                 # Spatial transforms (affect both image and bounding boxes)
-                A.ShiftScaleRotate(
-                    shift_limit=0.05,  # Conservative shift
-                    scale_limit=0.1,  # Subtle scaling
-                    rotate_limit=15,  # Small rotations
-                    p=0.8,
-                    border_mode=cv2.BORDER_CONSTANT,
-                ),
-                A.BBoxSafeRandomCrop(),
+                # A.ShiftScaleRotate(
+                #    shift_limit=0.05,  # Conservative shift
+                #    scale_limit=0.1,  # Subtle scaling
+                #    rotate_limit=15,  # Small rotations
+                #    p=0.8,
+                #    border_mode=cv2.BORDER_CONSTANT,
+                # ),
+                # A.BBoxSafeRandomCrop(),
                 # Optional horizontal flip - use with caution for mammography
                 # as it may change laterality interpretation
                 A.HorizontalFlip(p=0.6),
@@ -90,10 +90,6 @@ class MammographyDataset(Dataset):
                 A.RandomBrightnessContrast(
                     brightness_limit=0.1, contrast_limit=0.1, p=0.7
                 ),
-                A.GaussianBlur(
-                    blur_limit=3, p=0.3
-                ),  # Simulates slight focus variations
-                A.GaussNoise(p=0.2),  # Subtle noise
                 # For mammography, CLAHE can enhance contrast in dense regions
                 A.CLAHE(clip_limit=2.0, p=0.5),
             ],
