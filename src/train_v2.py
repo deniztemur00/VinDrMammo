@@ -16,7 +16,8 @@ class Trainer:
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader = None,
         epochs: int = 10,
-        save_dir: str = "models/",
+        model_dir: str = "models/",
+        plot_dir: str = "plots/",
         name: str = None,
     ):
         self.model = model
@@ -43,8 +44,9 @@ class Trainer:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
         self.epochs = epochs
-        self.save_dir = save_dir
-        os.makedirs(self.save_dir, exist_ok=True)
+        self.model_dir = model_dir
+        self.plot_dir = plot_dir
+        os.makedirs(self.model_dir, exist_ok=True)
         self.model.to(self.device)
 
         self.scheduler = CosineAnnealingLR(
@@ -57,6 +59,13 @@ class Trainer:
         self.name = name if name else ""
         self.train_losses = []
         self.val_losses = []
+
+        # Plot information
+        os.makedirs(self.plot_dir, exist_ok=True)
+        self.birads_f1_scores = []
+        self.density_f1_scores = []
+        self.map_scores = []
+        self.current_epoch = 0
 
     def train(self):
         best_loss = float("inf")
@@ -123,17 +132,19 @@ class Trainer:
                         print("Saving model...")
                         best_loss = val_loss
                         self.save(
-                            os.path.join(self.save_dir, f"{self.name}_best_model.pth")
+                            os.path.join(self.model_dir, f"{self.name}_best_model.pth")
                         )
                 else:
                     self.save(
-                        os.path.join(self.save_dir, f"{self.name}_epoch_{epoch}.pth")
+                        os.path.join(self.model_dir, f"{self.name}_epoch_{epoch}.pth")
                     )
 
             self.save_loss_plot()
         except KeyboardInterrupt:
             print("Training interrupted. Saving model...")
-            self.save(os.path.join(self.save_dir, f"{self.name}_interrupted_model.pth"))
+            self.save(
+                os.path.join(self.model_dir, f"{self.name}_interrupted_model.pth")
+            )
             self.save_loss_plot()
 
     @torch.no_grad()
@@ -146,6 +157,10 @@ class Trainer:
         density_targets = []
         detections_list = []
         targets_list = []
+
+        birads_results = None
+        density_results = None
+        map_results = None
 
         val_loader = tqdm(self.val_loader, desc="Validation")
         for images, targets in val_loader:
@@ -193,16 +208,20 @@ class Trainer:
             detections_list.extend(detections)
             targets_list.extend(targets)
 
-            birad_results = evaluate_classification(birad_preds, birad_targets)
+            birads_results = evaluate_classification(
+                birad_preds, birad_targets, task="birads"
+            )
             density_results = evaluate_classification(
                 density_preds, density_targets, task="density"
             )
+
+            #
 
             # Update progress bar
             val_loader.set_postfix(
                 {
                     "mAP": f"{map_results['map'].item():.4f}",
-                    "birads_f1": f"{birad_results['f1']:.4f}",
+                    "birads_f1": f"{birads_results['f1']:.4f}",
                     "density_f1": f"{density_results['f1']:.4f}",
                     "det_loss": f"{loss_dict['detection_loss'].item():.4f}",
                     "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
@@ -231,6 +250,12 @@ class Trainer:
             "map_results": map_results,
         }
         self.result_dict = result_dict
+
+        self.current_epoch += 1
+        self.birads_f1_scores.append(birads_results["f1"])
+        self.density_f1_scores.append(density_results["f1"])
+        self.map_scores.append(result_dict["map_results"]["map"].item())
+        self.save_metrics_plots()
 
         return val_loss, result_dict
 
@@ -316,14 +341,62 @@ class Trainer:
         self.model.load_state_dict(torch.load(filename, map_location=self.device))
 
     def save_loss_plot(self):
+        # Training loss plot
         plt.figure(figsize=(10, 5))
-        plt.plot(self.train_losses, label="Training Loss")
-        if self.val_losses:
-            plt.plot(self.val_losses, label="Validation Loss")
+        plt.plot(self.train_losses, "b-o", label="Training Loss")
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
-        plt.title("Training Progress")
-        plt.legend()
+        plt.title("Training Loss")
         plt.grid(True)
-        plt.savefig(os.path.join(self.save_dir, f"{self.name}_losses.png"))
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, f"{self.name}_training_loss.png"))
+        plt.close()
+
+        # Validation loss plot (if available)
+        if self.val_losses:
+            plt.figure(figsize=(10, 5))
+            plt.plot(self.val_losses, "r-o", label="Validation Loss")
+            plt.xlabel("Epoch")
+            plt.ylabel("Loss")
+            plt.title("Validation Loss")
+            plt.grid(True)
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.plot_dir, f"{self.name}_validation_loss.png"))
+            plt.close()
+
+    def save_metrics_plots(self):
+        """Save separate plots for each validation metric."""
+        epochs = list(range(1, self.current_epoch + 1))
+
+        # Create and save BiRADS F1 plot
+        plt.figure(figsize=(10, 5))
+        plt.plot(epochs, self.birads_f1_scores, "b-o", label="BiRADS F1 Score")
+        plt.xlabel("Epoch")
+        plt.ylabel("F1 Score")
+        plt.title("BiRADS Classification F1 Score")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, f"{self.name}_birads_f1.png"))
+        plt.close()
+
+        # Create and save Density F1 plot
+        plt.figure(figsize=(10, 5))
+        plt.plot(epochs, self.density_f1_scores, "g-o", label="Density F1 Score")
+        plt.xlabel("Epoch")
+        plt.ylabel("F1 Score")
+        plt.title("Breast Density Classification F1 Score")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, f"{self.name}_density_f1.png"))
+        plt.close()
+
+        # Create and save mAP plot
+        plt.figure(figsize=(10, 5))
+        plt.plot(epochs, self.map_scores, "r-o", label="mAP")
+        plt.xlabel("Epoch")
+        plt.ylabel("mAP")
+        plt.title("Mean Average Precision (Detection)")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.plot_dir, f"{self.name}_map.png"))
         plt.close()
