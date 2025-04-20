@@ -19,23 +19,9 @@ class ClassificationDataset(Dataset):
         self,
         df: pd.DataFrame,
         image_dir: str,  # Directory containing the PNG images
-        img_size: Tuple[int, int] = (800, 800),
+        img_size: Tuple[int, int] = (224, 224),
         augment_duplicated: bool = True,
     ) -> None:
-        """
-        Args:
-            df (pd.DataFrame): DataFrame containing image metadata.
-                               Must include 'study_id', 'image_id',
-                               'breast_birads', 'breast_density', and
-                               'is_duplicated' columns.
-            image_dir (str): Path to the directory where PNG images are stored
-                             (e.g., 'path/to/png_images'). Images should be
-                             organized or named such that they can be accessed
-                             using study_id and image_id.
-            img_size (Tuple[int, int]): Target size for the images.
-            augment_duplicated (bool): If True, apply augmentations to rows
-                                       where df['is_duplicated'] is True.
-        """
         self.df = df.reset_index(drop=True)
         self.image_dir = image_dir
         self.img_size = img_size
@@ -82,12 +68,13 @@ class ClassificationDataset(Dataset):
                     mean=self.mean, std=self.std, max_pixel_value=255
                 ),  # Adjust mean/std if single channel
                 ToTensorV2(),
-            ]
+            ],
+            seed=42,
         )
 
     def unnormalize(self, tensor: torch.Tensor) -> np.ndarray:
         """
-        Unnormalize the tensor to convert it back to an image.
+        Unnormalize the tensor to convert it back to an image. For plotting purposes.
         Args:
             tensor (torch.Tensor): The input tensor to unnormalize.
         Returns:
@@ -108,27 +95,27 @@ class ClassificationDataset(Dataset):
         return len(self.df)
 
     def _process_image(self, row: pd.Series) -> torch.Tensor:
-        """
-        Loads and processes the image using Albumentations transforms.
-        Applies augmentation if the row is marked as duplicated.
-        """
         img_path = f"{self.image_dir}/{row.study_id}/{row.image_id}.png"
         # Load image as NumPy array (H, W, C)
         image = np.array(Image.open(img_path).convert("RGB")).astype(np.float32)
 
-        apply_augmentation = self.augment_duplicated and row.get("is_duplicated", False)
+        apply_augmentation = (
+            row.get("split") == "training"
+            and self.augment_duplicated
+            and row.get("is_duplicated", False)
+        )
 
         if not apply_augmentation:
             transformed = self.base_transform(image=image)["image"]
         else:
             transformed = self.augment_transform(image=image)["image"]
-            print("Augmentation applied")  # Optional debug print
+            # print("Augmentation applied")  # Optional debug print
 
         image_tensor = transformed.to(self.device)
 
-        print(
-            f"Image shape: {image_tensor.shape} device {image_tensor.device}"
-        )  # Optional debug print
+        # print(
+        #    f"Image shape: {image_tensor.shape} device {image_tensor.device}"
+        # )  # Optional debug print
         # print(image_tensor.shape) # Optional debug print
 
         # Move to device in the training loop or collate_fn, not here
@@ -137,10 +124,6 @@ class ClassificationDataset(Dataset):
         return image_tensor
 
     def _preprocess_targets(self, row: pd.Series) -> Dict[str, torch.Tensor]:
-        """
-        Preprocess the target labels for the image.
-        This is a placeholder for any additional processing needed.
-        """
         # Get labels
         birads_label = self.birads_map[row.breast_birads]
         density_label = self.density_map[row.breast_density]
