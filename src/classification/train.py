@@ -11,7 +11,7 @@ from sklearn.metrics import f1_score
 @dataclass
 class TrainerConfig:
     epochs: int = 10
-    lr: float = 1e-4
+    lr: float = 1e-3
     weight_decay: float = 0.01
     model_dir: str = "models/"
     plot_dir: str = "plots/"
@@ -106,6 +106,9 @@ class ClassificationTrainer:
                 self.current_epoch = epoch
                 self.model.train()
                 epoch_loss = 0.0
+                epoch_birads_loss = 0.0  # Accumulate birads loss
+                epoch_density_loss = 0.0  # Accumulate density loss
+                batch_count = 0
                 train_pbar = tqdm(
                     self.train_loader,
                     desc=f"Epoch {epoch+1}/{self.epochs} - Training",
@@ -114,9 +117,7 @@ class ClassificationTrainer:
 
                 for images, targets in train_pbar:
 
-                    outputs = self.model(
-                        images
-                    )  # Assuming model returns dict with logits
+                    outputs = self.model(images)
 
                     loss, loss_dict = self._calculate_loss(outputs, targets)
 
@@ -129,16 +130,18 @@ class ClassificationTrainer:
 
                     self.optimizer.step()
 
-                    current_loss = loss.item()
-                    epoch_loss += current_loss
+                    epoch_loss += loss.item()
+                    epoch_birads_loss += loss_dict["birads_loss"].item()
+                    epoch_density_loss += loss_dict["density_loss"].item()
+                    batch_count += 1
 
                     # Update progress bar postfix
-                    lr = self.optimizer.param_groups[0]["lr"]  # Get current LR
+                    lr = self.scheduler.get_last_lr()[0]  # Get current LR
                     train_pbar.set_postfix(
                         {
-                            "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
-                            "density_loss": f"{loss_dict['density_loss'].item():.4f}",
-                            "total_loss": f"{current_loss:.4f}",
+                            "avg_birads": f"{epoch_birads_loss / batch_count:.4f}",
+                            "avg_density": f"{epoch_density_loss / batch_count:.4f}",
+                            "avg_total": f"{epoch_loss / batch_count:.4f}",
                             "LR": f"{lr:.6f}",
                         }
                     )
@@ -196,6 +199,9 @@ class ClassificationTrainer:
     def validate(self):
         self.model.eval()
         total_val_loss = 0.0
+        val_birads_loss = 0.0
+        val_density_loss = 0.0
+        val_batch_count = 0
         all_birads_preds = []
         all_birads_targets = []
         all_density_preds = []
@@ -212,7 +218,12 @@ class ClassificationTrainer:
             outputs = self.model(images)
 
             loss, loss_dict = self._calculate_loss(outputs, targets)
-            total_val_loss += loss.item()
+            total_val_loss += (
+                loss.item()
+            )  # Keep accumulating total loss for final epoch average
+            val_birads_loss += loss_dict["birads_loss"].item()
+            val_density_loss += loss_dict["density_loss"].item()
+            val_batch_count += 1
 
             # Get predictions
             birads_preds = torch.argmax(outputs["birads_logits"], dim=1)
@@ -234,11 +245,11 @@ class ClassificationTrainer:
             # Update progress bar postfix (optional)
             val_pbar.set_postfix(
                 {
-                    "birads_f1": f"{birads_f1:.4f}",
-                    "density_f1": f"{density_f1:.4f}",
-                    "birads_loss": f"{loss_dict['birads_loss'].item():.4f}",
-                    "density_loss": f"{loss_dict['density_loss'].item():.4f}",
-                    "total_loss": f"{loss.item():.4f}",
+                    "birads_f1": f"{birads_f1:.4f}",  # F1 calculated on accumulated preds
+                    "density_f1": f"{density_f1:.4f}",  # F1 calculated on accumulated preds
+                    "avg_birads_loss": f"{val_birads_loss / val_batch_count:.4f}",
+                    "avg_density_loss": f"{val_density_loss/ val_batch_count:.4f}",
+                    "avg_total_loss": f"{total_val_loss / val_batch_count:.4f}",  # Use total_val_loss here as it's already accumulated
                 }
             )
 
