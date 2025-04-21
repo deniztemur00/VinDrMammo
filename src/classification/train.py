@@ -12,7 +12,7 @@ from sklearn.metrics import f1_score, recall_score, precision_score
 class TrainerConfig:
     epochs: int = 10
     lr: float = 5e-4
-    weight_decay: float = 0.05
+    weight_decay: float = 0.1
     model_dir: str = "models/"
     plot_dir: str = "plots/"
     name: str = None
@@ -25,7 +25,14 @@ class TrainerConfig:
         "BI-RADS 4": 1.977734375,
         "BI-RADS 3": 2.072876151484135,
         "BI-RADS 5": 4.5819004524886875,
-    }  # Example weight
+    }
+
+    density_class_weights = {
+        "DENSITY A": 25.064356435643564,
+        "DENSITY B": 1.253217821782178,
+        "DENSITY C": 0.48459035222052066,
+        "DENSITY D": 0.9102840704782452,
+    }
 
 
 class ClassificationTrainer:
@@ -37,6 +44,7 @@ class ClassificationTrainer:
         config: TrainerConfig,
     ):
         self.model = model
+        torch.set_float32_matmul_precision("high") # # Set precision for matmul operations
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.epochs = config.epochs
@@ -66,8 +74,12 @@ class ClassificationTrainer:
         self.birads_class_weights = torch.tensor(
             list(config.birads_class_weights.values()), device=self.device
         )
+
+        self.density_class_weights = torch.tensor(
+            list(config.density_class_weights.values()), device=self.device
+        )
         self.birads_loss_fn = nn.CrossEntropyLoss(weight=self.birads_class_weights)
-        self.density_loss_fn = nn.CrossEntropyLoss()
+        self.density_loss_fn = nn.CrossEntropyLoss(weight=self.density_class_weights)
 
         # Scheduler
         self.scheduler = CosineAnnealingLR(
@@ -82,6 +94,7 @@ class ClassificationTrainer:
         )
         print(f"Training on {len(self.train_loader.dataset)} samples")
         print(f"BIRADS class weights: {self.birads_class_weights}")
+        print(f"DENSITY class weights: {self.density_class_weights}")
 
         # History tracking
         self.train_losses = []
@@ -120,6 +133,7 @@ class ClassificationTrainer:
 
     def train(self):
         best_val_loss = float("inf")
+        best_birads_f1 = 0.0
         try:
             for epoch in range(self.epochs):
                 self.current_epoch = epoch
@@ -186,12 +200,12 @@ class ClassificationTrainer:
                     #    f"Epoch {epoch+1}/{self.epochs} - Validation Loss: {val_loss:.4f}, "
                     #    f"BiRADS F1: {metrics['birads_f1']:.4f}, Density F1: {metrics['density_f1']:.4f}"
                     # )
-
-                    if val_loss < best_val_loss:
+                    current_birads_f1 = metrics["birads_f1"]
+                    if current_birads_f1 > best_birads_f1:
                         print(
-                            f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving model..."
+                            f"BiRADS F1 score improved from {best_birads_f1:.4f} to {current_birads_f1:.4f}. Saving best model..."
                         )
-                        best_val_loss = val_loss
+                        best_birads_f1 = current_birads_f1
                         self.save(
                             os.path.join(self.model_dir, f"{self.name}_best_model.pth")
                         )
@@ -199,7 +213,7 @@ class ClassificationTrainer:
                 self.save(
                     os.path.join(self.model_dir, f"{self.name}_epoch_{epoch+1}.pth")
                 )
-
+            self.save_loss_plot()
             print("Training finished.")
             # Save final loss plots
 
@@ -211,6 +225,8 @@ class ClassificationTrainer:
             self.save_loss_plot()
             self.save_metrics_plots()
             print("Model saved.")
+
+        # might return history
 
     @torch.no_grad()
     def validate(self):
@@ -286,11 +302,21 @@ class ClassificationTrainer:
             all_density_targets, all_density_preds, average="macro", zero_division=0
         )
 
+        birads_f1 = f1_score(
+            all_birads_targets, all_birads_preds, average="macro", zero_division=0
+        )
+
+        density_f1 = f1_score(
+            all_density_targets, all_density_preds, average="macro", zero_division=0
+        )
+
         metrics = {
             "birads_precision": birads_precision,  # Get F1 or default to 0
             "density_precision": density_precision,
             "birads_recall": birads_recall,
             "density_recall": density_recall,
+            "birads_f1": birads_f1,
+            "density_f1": density_f1,
             # Add other metrics from evaluate_classification if needed
         }
 
