@@ -24,7 +24,6 @@ class BaseClassifierConfig:
 class EfficientNetClassifierConfig(BaseClassifierConfig):
     """Configuration for the EfficientNet-based classifier."""
 
-    model_name: str = "efficientnet_b3"  # Example, can be b0-b7
     pretrained: bool = True
     trainable_backbone_layers: int = 3  # Number of blocks from the end to unfreeze
 
@@ -50,15 +49,15 @@ class BIRADSHead(nn.Module):
 
     def __init__(self, num_features: int, num_classes: int):
         super().__init__()
-        self.block = nn.Sequential(
-            nn.Linear(num_features, 256),
+        self.mlp = nn.Sequential(
+            nn.Linear(num_features, 512),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, num_classes),
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.block(x)
+        return self.mlp(x)
 
 
 class DensityHead(nn.Module):
@@ -66,15 +65,15 @@ class DensityHead(nn.Module):
 
     def __init__(self, num_features: int, num_classes: int):
         super().__init__()
-        self.block = nn.Sequential(
-            nn.Linear(num_features, 128),
+        self.mlp = nn.Sequential(
+            nn.Linear(num_features, 256),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, num_classes),
+            nn.Dropout(0.3),
+            nn.Linear(256, num_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.block(x)
+        return self.mlp(x)
 
 
 class EfficientNetClassifier(nn.Module):
@@ -148,13 +147,21 @@ class ResNetClassifier(nn.Module):
             if config.trainable_backbone_layers > 1:  # Unfreeze layer3
                 for param in self.backbone.layer3.parameters():
                     param.requires_grad = True
-            # ... continue for layer2, layer1, conv1 if needed
+            if config.trainable_backbone_layers > 2:  # Unfreeze layer2
+                for param in self.backbone.layer2.parameters():
+                    param.requires_grad = True
+            if config.trainable_backbone_layers > 3:  # Unfreeze layer1
+                for param in self.backbone.layer1.parameters():
+                    param.requires_grad = True
+            if config.trainable_backbone_layers > 4:  # Unfreeze conv1
+                for param in self.backbone.conv1.parameters():
+                    param.requires_grad = True
 
         num_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Identity()  # Remove original classifier
 
-        self.birads_head = nn.Linear(num_features, config.num_birads_classes)
-        self.density_head = nn.Linear(num_features, config.num_density_classes)
+        self.birads_head = BIRADSHead(num_features, config.num_birads_classes)
+        self.density_head = DensityHead(num_features, config.num_density_classes)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         features = self.backbone(x)
@@ -184,8 +191,8 @@ class ViTClassifier(nn.Module):
 
         num_features = vit_config.hidden_size
 
-        self.birads_head = nn.Linear(num_features, config.num_birads_classes)
-        self.density_head = nn.Linear(num_features, config.num_density_classes)
+        self.birads_head = BIRADSHead(num_features, config.num_birads_classes)
+        self.density_head = DensityHead(num_features, config.num_density_classes)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         outputs = self.vit(pixel_values=x)
