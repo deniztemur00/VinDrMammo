@@ -5,19 +5,27 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, recall_score, precision_score
 
 
 @dataclass
 class TrainerConfig:
     epochs: int = 10
-    lr: float = 1e-3
-    weight_decay: float = 0.01
+    lr: float = 5e-4
+    weight_decay: float = 0.05
     model_dir: str = "models/"
     plot_dir: str = "plots/"
     name: str = None
-    birads_loss_weight: float = 0.6
-    density_loss_weight: float = 0.4  # Example weight
+    birads_loss_weight: float = 0.7
+    density_loss_weight: float = 0.3
+    ##Calculated weights (inversely proportional):
+    birads_class_weights = {
+        "BI-RADS 1": 0.4187758478081059,
+        "BI-RADS 2": 0.7113452757288373,
+        "BI-RADS 4": 1.977734375,
+        "BI-RADS 3": 2.072876151484135,
+        "BI-RADS 5": 4.5819004524886875,
+    }  # Example weight
 
 
 class ClassificationTrainer:
@@ -42,21 +50,23 @@ class ClassificationTrainer:
         self.device = torch.device(device)
         self.model.to(self.device)
 
-        # Optimizer - adjust param_groups if your model has distinct parts with different LR needs
-        # Simple optimizer for all parameters:
+        if hasattr(torch, "compile"):
+            self.model = torch.compile(
+                self.model,
+                mode="reduce-overhead",  # Options: "reduce-overhead", "max-autotune"
+            )
+            print("Model compiled with torch.compile()")
+        else:
+            print("Warning: PyTorch version <2.0 - torch.compile unavailable")
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=config.lr, weight_decay=config.weight_decay
         )
-        # Example with param_groups if needed (adjust based on your model structure):
-        # self.param_groups = [
-        #     {"params": model.backbone.parameters(), "lr": lr * 0.1},
-        #     {"params": model.birads_head.parameters(), "lr": lr},
-        #     {"params": model.density_head.parameters(), "lr": lr},
-        # ]
-        # self.optimizer = torch.optim.AdamW(self.param_groups, weight_decay=weight_decay)
 
         # Loss functions
-        self.birads_loss_fn = nn.CrossEntropyLoss()
+        self.birads_class_weights = torch.tensor(
+            list(config.birads_class_weights.values()), device=self.device
+        )
+        self.birads_loss_fn = nn.CrossEntropyLoss(weight=self.birads_class_weights)
         self.density_loss_fn = nn.CrossEntropyLoss()
 
         # Scheduler
@@ -66,11 +76,20 @@ class ClassificationTrainer:
             eta_min=1e-6,
         )
 
+        print(f"Device: {self.device}, Model: {self.model.__class__.__name__}")
+        print(
+            f"Optimizer: {self.optimizer.__class__.__name__}, Scheduler: {self.scheduler.__class__.__name__}"
+        )
+        print(f"Training on {len(self.train_loader.dataset)} samples")
+        print(f"BIRADS class weights: {self.birads_class_weights}")
+
         # History tracking
         self.train_losses = []
         self.val_losses = []
-        self.birads_f1_scores = []
-        self.density_f1_scores = []
+        self.birads_recall_scores = []
+        self.density_recall_scores = []
+        self.birads_precision_scores = []
+        self.density_precision_scores = []
         self.current_epoch = 0
 
         # Create directories
@@ -112,7 +131,7 @@ class ClassificationTrainer:
                 train_pbar = tqdm(
                     self.train_loader,
                     desc=f"Epoch {epoch+1}/{self.epochs} - Training",
-                    leave=False,
+                    leave=True,
                 )
 
                 for images, targets in train_pbar:
@@ -151,23 +170,22 @@ class ClassificationTrainer:
 
                 avg_epoch_loss = epoch_loss / len(self.train_loader)
                 self.train_losses.append(avg_epoch_loss)
-                print(
-                    f"Epoch {epoch+1}/{self.epochs} - Avg Training Loss: {avg_epoch_loss:.4f}"
-                )
                 self.save_loss_plot()
 
                 # Validation
                 if self.val_loader:
                     val_loss, metrics = self.validate()
                     self.val_losses.append(val_loss)
-                    self.birads_f1_scores.append(metrics["birads_f1"])
-                    self.density_f1_scores.append(metrics["density_f1"])
+                    self.birads_precision_scores.append(metrics["birads_precision"])
+                    self.density_precision_scores.append(metrics["density_precision"])
+                    self.birads_recall_scores.append(metrics["birads_recall"])
+                    self.density_recall_scores.append(metrics["density_recall"])
                     self.save_metrics_plots()  # Save plots each epoch
 
-                    print(
-                        f"Epoch {epoch+1}/{self.epochs} - Validation Loss: {val_loss:.4f}, "
-                        f"BiRADS F1: {metrics['birads_f1']:.4f}, Density F1: {metrics['density_f1']:.4f}"
-                    )
+                    # print(
+                    #    f"Epoch {epoch+1}/{self.epochs} - Validation Loss: {val_loss:.4f}, "
+                    #    f"BiRADS F1: {metrics['birads_f1']:.4f}, Density F1: {metrics['density_f1']:.4f}"
+                    # )
 
                     if val_loss < best_val_loss:
                         print(
@@ -177,11 +195,10 @@ class ClassificationTrainer:
                         self.save(
                             os.path.join(self.model_dir, f"{self.name}_best_model.pth")
                         )
-                else:
-                    # Save model every epoch if no validation
-                    self.save(
-                        os.path.join(self.model_dir, f"{self.name}_epoch_{epoch+1}.pth")
-                    )
+
+                self.save(
+                    os.path.join(self.model_dir, f"{self.name}_epoch_{epoch+1}.pth")
+                )
 
             print("Training finished.")
             # Save final loss plots
@@ -210,7 +227,7 @@ class ClassificationTrainer:
         val_pbar = tqdm(
             self.val_loader,
             desc=f"Epoch {self.current_epoch+1}/{self.epochs} - Validation",
-            leave=False,
+            leave=True,
         )
 
         for images, targets in val_pbar:
@@ -256,16 +273,24 @@ class ClassificationTrainer:
         avg_val_loss = total_val_loss / len(self.val_loader)
 
         # Or using sklearn directly:
-        birads_f1 = f1_score(
+        birads_precision = precision_score(
             all_birads_targets, all_birads_preds, average="macro", zero_division=0
         )
-        density_f1 = f1_score(
+        density_precision = precision_score(
+            all_density_targets, all_density_preds, average="macro", zero_division=0
+        )
+        birads_recall = recall_score(
+            all_birads_targets, all_birads_preds, average="macro", zero_division=0
+        )
+        density_recall = recall_score(
             all_density_targets, all_density_preds, average="macro", zero_division=0
         )
 
         metrics = {
-            "birads_f1": birads_f1,  # Get F1 or default to 0
-            "density_f1": density_f1,  # Get F1 or default to 0
+            "birads_precision": birads_precision,  # Get F1 or default to 0
+            "density_precision": density_precision,
+            "birads_recall": birads_recall,
+            "density_recall": density_recall,
             # Add other metrics from evaluate_classification if needed
         }
 
@@ -273,7 +298,6 @@ class ClassificationTrainer:
 
     def save(self, filename):
         """Saves the model state dictionary."""
-        print(f"Saving model to {filename}")
         torch.save(self.model.state_dict(), filename)
 
     def load(self, filename):
@@ -324,52 +348,83 @@ class ClassificationTrainer:
         plt.tight_layout()
         plot_path = os.path.join(self.plot_dir, f"{self.name}_losses.png")
         plt.savefig(plot_path)
-        print(f"Loss plots saved to {plot_path}")
+        # print(f"Loss plots saved to {plot_path}")
         plt.close()
 
     def save_metrics_plots(self):
-        """Saves plots for validation metrics (F1 scores)."""
-        if (
-            not self.val_loader or not self.birads_f1_scores
-        ):  # Check if validation happened
+        """Saves plots for validation metrics (Precision and Recall)."""
+        # Check if validation happened and scores exist using one of the lists
+        if not self.val_loader or not self.birads_recall_scores:
+            print("Skipping metrics plot generation: No validation data or scores.")
             return
 
         epochs = list(
             range(1, self.current_epoch + 2)
         )  # +1 for current epoch, +1 for range end
 
-        plt.figure(figsize=(12, 5))
+        num_val_epochs = len(self.val_losses)  # Use val_losses as the reference length
+        epochs = epochs[:num_val_epochs]
+        birads_prec = self.birads_precision_scores[:num_val_epochs]
+        birads_rec = self.birads_recall_scores[:num_val_epochs]
+        density_prec = self.density_precision_scores[:num_val_epochs]
+        density_rec = self.density_recall_scores[:num_val_epochs]
 
-        # Plot BiRADS F1
-        plt.subplot(1, 2, 1)
+        if not epochs:
+            print("Skipping metrics plot generation: No epochs with validation data.")
+            return
+
+        # --- Plot 1: BiRADS Precision and Recall ---
+        plt.figure(figsize=(8, 5))  # Create a new figure for BiRADS
         plt.plot(
-            epochs[: len(self.birads_f1_scores)],
-            self.birads_f1_scores,
+            epochs,
+            birads_prec,
             "b-o",
-            label="BiRADS F1 Score",
+            label="BiRADS Precision",
         )
-        plt.xlabel("Epoch")
-        plt.ylabel("F1 Score (Macro)")
-        plt.title("BiRADS Classification F1 Score")
-        plt.grid(True)
-        plt.legend()
-
-        # Plot Density F1
-        plt.subplot(1, 2, 2)
         plt.plot(
-            epochs[: len(self.density_f1_scores)],
-            self.density_f1_scores,
-            "g-o",
-            label="Density F1 Score",
+            epochs,
+            birads_rec,
+            "r-^",  # Different marker for recall
+            label="BiRADS Recall",
         )
         plt.xlabel("Epoch")
-        plt.ylabel("F1 Score (Macro)")
-        plt.title("Breast Density Classification F1 Score")
+        plt.ylabel("Score (Macro)")
+        plt.title("BiRADS Classification - Precision & Recall")
         plt.grid(True)
         plt.legend()
-
+        plt.ylim(0, 1)  # Keep y-axis between 0 and 1
         plt.tight_layout()
-        plot_path = os.path.join(self.plot_dir, f"{self.name}_f1_scores.png")
-        plt.savefig(plot_path)
-        print(f"Metric plots saved to {plot_path}")
+        birads_plot_path = os.path.join(
+            self.plot_dir, f"{self.name}_birads_precision_recall.png"
+        )
+        plt.savefig(birads_plot_path)
+        # print(f"BiRADS Precision/Recall plot saved to {birads_plot_path}")
         plt.close()
+
+        # --- Plot 2: Density Precision and Recall ---
+        plt.figure(figsize=(8, 5))  # Create a new figure for Density
+        plt.plot(
+            epochs,
+            density_prec,
+            "g-o",
+            label="Density Precision",
+        )
+        plt.plot(
+            epochs,
+            density_rec,
+            "m-^",  # Different marker for recall
+            label="Density Recall",
+        )
+        plt.xlabel("Epoch")
+        plt.ylabel("Score (Macro)")
+        plt.title("Breast Density Classification - Precision & Recall")
+        plt.grid(True)
+        plt.legend()
+        plt.ylim(0, 1)  # Keep y-axis between 0 and 1
+        plt.tight_layout()
+        density_plot_path = os.path.join(
+            self.plot_dir, f"{self.name}_density_precision_recall.png"
+        )
+        plt.savefig(density_plot_path)
+        # print(f"Density Precision/Recall plot saved to {density_plot_path}")
+        plt.close()  # Close the figure
