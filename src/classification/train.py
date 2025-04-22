@@ -2,6 +2,7 @@ import os
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
+import torch.nn.functional as F
 from tqdm import tqdm
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
@@ -18,6 +19,7 @@ class TrainerConfig:
     name: str = None
     birads_loss_weight: float = 0.7
     density_loss_weight: float = 0.3
+    focal_loss_gamma: float = 2.0
     ##Calculated weights (inversely proportional):
     birads_class_weights = {
         "BI-RADS 1": 0.4187758478081059,
@@ -35,6 +37,29 @@ class TrainerConfig:
     }
 
 
+class FocalLoss(nn.Module):
+    def __init__(self, gamma=2.0, reduction="mean"):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # Calculate CE loss without reduction to get per-example losses
+        ce_loss = F.cross_entropy(inputs, targets, reduction="none")
+        # Calculate the probability of the correct class p_t = exp(-ce_loss)
+        pt = torch.exp(-ce_loss)
+        # Calculate the focal loss term: (1 - pt)^gamma * ce_loss
+        focal_term = (1 - pt) ** self.gamma * ce_loss
+
+        # Apply the specified reduction
+        if self.reduction == "mean":
+            return focal_term.mean()
+        elif self.reduction == "sum":
+            return focal_term.sum()
+        else:  # 'none'
+            return focal_term
+
+
 class ClassificationTrainer:
     def __init__(
         self,
@@ -44,7 +69,9 @@ class ClassificationTrainer:
         config: TrainerConfig,
     ):
         self.model = model
-        torch.set_float32_matmul_precision("high") # # Set precision for matmul operations
+        torch.set_float32_matmul_precision(
+            "high"
+        )  # # Set precision for matmul operations
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.epochs = config.epochs
@@ -78,14 +105,19 @@ class ClassificationTrainer:
         self.density_class_weights = torch.tensor(
             list(config.density_class_weights.values()), device=self.device
         )
-        self.birads_loss_fn = nn.CrossEntropyLoss(weight=self.birads_class_weights)
-        self.density_loss_fn = nn.CrossEntropyLoss(weight=self.density_class_weights)
+
+        self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
+        self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
 
         # Scheduler
         self.scheduler = CosineAnnealingLR(
             self.optimizer,
             T_max=config.epochs,  # T_max often set to total epochs
             eta_min=1e-6,
+        )
+
+        print(
+            f"Number of parameters: {sum(p.numel() for p in self.model.parameters() if p.requires_grad):_}"
         )
 
         print(f"Device: {self.device}, Model: {self.model.__class__.__name__}")
@@ -210,9 +242,7 @@ class ClassificationTrainer:
                             os.path.join(self.model_dir, f"{self.name}_best_model.pth")
                         )
 
-                self.save(
-                    os.path.join(self.model_dir, f"{self.name}_epoch_{epoch+1}.pth")
-                )
+                self.save(os.path.join(self.model_dir, f"{self.name}_last_epoch.pth"))
             self.save_loss_plot()
             print("Training finished.")
             # Save final loss plots
@@ -329,7 +359,9 @@ class ClassificationTrainer:
     def load(self, filename):
         """Loads the model state dictionary."""
         print(f"Loading model from {filename}")
-        self.model.load_state_dict(torch.load(filename, map_location=self.device))
+        self.model.load_state_dict(
+            torch.load(filename, map_location=self.device, weights_only=True)
+        )
         self.model.to(
             self.device
         )  # Ensure model is on the correct device after loading
