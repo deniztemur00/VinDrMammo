@@ -338,7 +338,9 @@ class Trainer:
         torch.save(self.model.state_dict(), filename)
 
     def load(self, filename):
-        self.model.load_state_dict(torch.load(filename, map_location=self.device))
+        self.model.load_state_dict(
+            torch.load(filename, map_location=self.device, weights_only=True)
+        )
 
     def save_loss_plot(self):
         # Training loss plot
