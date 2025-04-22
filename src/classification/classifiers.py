@@ -17,7 +17,7 @@ class BaseClassifierConfig:
     num_birads_classes: int = 5  # Example: BI-RADS 1-5
     num_density_classes: int = 4  # Example: Density A-D
     input_channels: int = 3
-    image_size: Tuple[int, int] = (224, 224)  # Default size for many models
+    image_size: Tuple[int, int] = (800, 800)  # Default size for many models
 
 
 @dataclass
@@ -25,7 +25,7 @@ class EfficientNetClassifierConfig(BaseClassifierConfig):
     """Configuration for the EfficientNet-based classifier."""
 
     pretrained: bool = True
-    trainable_backbone_layers: int = 3  # Number of blocks from the end to unfreeze
+    trainable_backbone_layers: int = 5  # Number of blocks from the end to unfreeze
 
 
 @dataclass
@@ -33,7 +33,7 @@ class ResNetClassifierConfig(BaseClassifierConfig):
     """Configuration for the ResNet-based classifier."""
 
     pretrained: bool = True
-    trainable_backbone_layers: int = 3  # 0 to 5
+    trainable_backbone_layers: int = 5  # 0 to 5
 
 
 @dataclass
@@ -52,7 +52,7 @@ class BIRADSHead(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(num_features, 512),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.5),
             nn.Linear(512, num_classes),
         )
 
@@ -68,7 +68,7 @@ class DensityHead(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(num_features, 256),
             nn.ReLU(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.5),
             nn.Linear(256, num_classes),
         )
 
