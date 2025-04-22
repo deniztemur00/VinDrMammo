@@ -56,7 +56,9 @@ class MammographyInference:
         self.density_categories = ["Density-A", "Density-B", "Density-C", "Density-D"]
 
         # Load model weights
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+        self.model.load_state_dict(
+            torch.load(model_path, map_location=self.device, weights_only=True)
+        )
         self.model.to(self.device)
         self.model.eval()
 
