@@ -6,7 +6,21 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
-from sklearn.metrics import f1_score, recall_score, precision_score
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    recall_score,
+    precision_score,
+    roc_curve,
+    auc,
+    roc_auc_score,
+)
+from sklearn.preprocessing import label_binarize
+import seaborn as sns
+import numpy as np
+from itertools import cycle
+from scipy.special import softmax
 
 
 @dataclass
@@ -83,7 +97,6 @@ class ClassificationTrainer:
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
-        self.model.to(self.device)
 
         if hasattr(torch, "compile"):
             self.model = torch.compile(
@@ -93,6 +106,8 @@ class ClassificationTrainer:
             print("Model compiled with torch.compile()")
         else:
             print("Warning: PyTorch version <2.0 - torch.compile unavailable")
+
+        self.model.to(self.device)
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=config.lr, weight_decay=config.weight_decay
         )
@@ -136,6 +151,16 @@ class ClassificationTrainer:
         self.birads_precision_scores = []
         self.density_precision_scores = []
         self.current_epoch = 0
+
+        # Store final validation results
+        self.final_birads_preds = []
+        self.final_birads_targets = []
+        self.final_birads_logits = []
+        self.final_density_preds = []
+        self.final_density_targets = []
+        self.final_density_logits = []
+        self.birads_labels = list(config.birads_class_weights.keys())
+        self.density_labels = list(config.density_class_weights.keys())
 
         # Create directories
         os.makedirs(self.model_dir, exist_ok=True)
@@ -204,9 +229,9 @@ class ClassificationTrainer:
                     lr = self.scheduler.get_last_lr()[0]  # Get current LR
                     train_pbar.set_postfix(
                         {
-                            "avg_birads": f"{epoch_birads_loss / batch_count:.4f}",
-                            "avg_density": f"{epoch_density_loss / batch_count:.4f}",
-                            "avg_total": f"{epoch_loss / batch_count:.4f}",
+                            "avg_birads_loss": f"{epoch_birads_loss / batch_count:.4f}",
+                            "avg_density_loss": f"{epoch_density_loss / batch_count:.4f}",
+                            "avg_total_loss": f"{epoch_loss / batch_count:.4f}",
                             "LR": f"{lr:.6f}",
                         }
                     )
@@ -227,7 +252,7 @@ class ClassificationTrainer:
                     self.birads_recall_scores.append(metrics["birads_recall"])
                     self.density_recall_scores.append(metrics["density_recall"])
                     self.save_metrics_plots()  # Save plots each epoch
-
+                    self.save_final_metrics_report()  # Save final metrics report
                     # print(
                     #    f"Epoch {epoch+1}/{self.epochs} - Validation Loss: {val_loss:.4f}, "
                     #    f"BiRADS F1: {metrics['birads_f1']:.4f}, Density F1: {metrics['density_f1']:.4f}"
@@ -244,6 +269,7 @@ class ClassificationTrainer:
 
                 self.save(os.path.join(self.model_dir, f"{self.name}_last_epoch.pth"))
             self.save_loss_plot()
+            self.save_final_metrics_report()
             print("Training finished.")
             # Save final loss plots
 
@@ -254,6 +280,7 @@ class ClassificationTrainer:
             )
             self.save_loss_plot()
             self.save_metrics_plots()
+            self.save_final_metrics_report()
             print("Model saved.")
 
         # might return history
@@ -261,14 +288,19 @@ class ClassificationTrainer:
     @torch.no_grad()
     def validate(self):
         self.model.eval()
+
         total_val_loss = 0.0
         val_birads_loss = 0.0
         val_density_loss = 0.0
         val_batch_count = 0
+
         all_birads_preds = []
         all_birads_targets = []
+        all_birads_logits = []
+
         all_density_preds = []
         all_density_targets = []
+        all_density_logits = []
 
         val_pbar = tqdm(
             self.val_loader,
@@ -292,7 +324,9 @@ class ClassificationTrainer:
             birads_preds = torch.argmax(outputs["birads_logits"], dim=1)
             density_preds = torch.argmax(outputs["density_logits"], dim=1)
 
-            # Store predictions and targets for metric calculation
+            # Store predictions,targets,and logits for metric calculation
+            all_birads_logits.append(outputs["birads_logits"].cpu().numpy())
+            all_density_logits.append(outputs["density_logits"].cpu().numpy())
             all_birads_preds.extend(birads_preds.cpu().numpy())
             all_birads_targets.extend(targets["birads"].cpu().numpy())
             all_density_preds.extend(density_preds.cpu().numpy())
@@ -339,6 +373,14 @@ class ClassificationTrainer:
         density_f1 = f1_score(
             all_density_targets, all_density_preds, average="macro", zero_division=0
         )
+
+        # Save final predictions and targets for later analysis
+        self.final_birads_preds = all_birads_preds
+        self.final_birads_targets = all_birads_targets
+        self.final_birads_logits = all_birads_logits
+        self.final_density_preds = all_density_preds
+        self.final_density_targets = all_density_targets
+        self.final_density_logits = all_density_logits
 
         metrics = {
             "birads_precision": birads_precision,  # Get F1 or default to 0
@@ -408,6 +450,244 @@ class ClassificationTrainer:
         plt.savefig(plot_path)
         # print(f"Loss plots saved to {plot_path}")
         plt.close()
+
+    def save_final_metrics_report(self):
+        if not self.val_loader or not self.final_birads_targets:
+            print("Skipping final metrics report: No validation results available.")
+            return
+
+        # Helper function to plot ROC curves
+        def plot_roc_curve(y_true, y_score, labels, task_name, plot_dir, model_name):
+            n_classes = len(labels)
+            # Binarize the output
+            y_true_bin = label_binarize(y_true, classes=range(n_classes))
+
+            # Compute ROC curve and ROC area for each class
+            fpr = dict()
+            tpr = dict()
+            roc_auc = dict()
+            for i in range(n_classes):
+                fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], y_score[:, i])
+                roc_auc[i] = auc(fpr[i], tpr[i])
+
+            # Compute micro-average ROC curve and ROC area
+            fpr["micro"], tpr["micro"], _ = roc_curve(
+                y_true_bin.ravel(), y_score.ravel()
+            )
+            roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+
+            # Compute macro-average ROC curve and ROC area
+            # First aggregate all false positive rates
+            all_fpr = np.unique(np.concatenate([fpr[i] for i in range(n_classes)]))
+            # Then interpolate all ROC curves at this points
+            mean_tpr = np.zeros_like(all_fpr)
+            for i in range(n_classes):
+                mean_tpr += np.interp(all_fpr, fpr[i], tpr[i])
+            # Finally average it and compute AUC
+            mean_tpr /= n_classes
+            fpr["macro"] = all_fpr
+            tpr["macro"] = mean_tpr
+            roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
+
+            # Plot all ROC curves
+            plt.figure(figsize=(10, 8))
+            lw = 2  # line width
+
+            plt.plot(
+                fpr["micro"],
+                tpr["micro"],
+                label=f'micro-average ROC curve (area = {roc_auc["micro"]:0.3f})',
+                color="deeppink",
+                linestyle=":",
+                linewidth=4,
+            )
+
+            plt.plot(
+                fpr["macro"],
+                tpr["macro"],
+                label=f'macro-average ROC curve (area = {roc_auc["macro"]:0.3f})',
+                color="navy",
+                linestyle=":",
+                linewidth=4,
+            )
+
+            colors = cycle(
+                ["aqua", "darkorange", "cornflowerblue", "green", "red", "purple"]
+            )
+            for i, color in zip(range(n_classes), colors):
+                plt.plot(
+                    fpr[i],
+                    tpr[i],
+                    color=color,
+                    lw=lw,
+                    label=f"ROC curve of class {labels[i]} (area = {roc_auc[i]:0.3f})",
+                )
+
+            plt.plot([0, 1], [0, 1], "k--", lw=lw)
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel("False Positive Rate")
+            plt.ylabel("True Positive Rate")
+            plt.title(f"{task_name} Multi-class ROC Curve")
+            plt.legend(loc="lower right")
+            plt.grid(True)
+            plt.tight_layout()
+            roc_plot_path = os.path.join(
+                plot_dir, f"{model_name}_{task_name.lower()}_roc_curve.png"
+            )
+            plt.savefig(roc_plot_path)
+            plt.close()
+            return roc_auc  # Return AUCs, maybe add macro AUC to report
+
+        # --- BI-RADS Metrics ---
+        try:
+            birads_report = classification_report(
+                self.final_birads_targets,
+                self.final_birads_preds,
+                target_names=self.birads_labels,
+                digits=4,
+                zero_division=0,
+            )
+            # print(birads_report) # Keep printing optional
+
+            # Confusion Matrix (code unchanged)
+            cm_birads = confusion_matrix(
+                self.final_birads_targets,
+                self.final_birads_preds,
+                labels=range(len(self.birads_labels)),
+            )
+            plt.figure(figsize=(8, 6))
+            sns.heatmap(
+                cm_birads,
+                annot=True,
+                fmt="d",
+                cmap="Blues",
+                xticklabels=self.birads_labels,
+                yticklabels=self.birads_labels,
+            )
+            plt.xlabel("Predicted Label")
+            plt.ylabel("True Label")
+            plt.title("BI-RADS Confusion Matrix")
+            plt.tight_layout()
+            cm_plot_path = os.path.join(
+                self.plot_dir, f"{self.name}_birads_confusion_matrix.png"
+            )
+            plt.savefig(cm_plot_path)
+            plt.close()
+
+            # ROC Curve
+            birads_auc = None
+            if self.final_birads_logits:
+                # Concatenate list of batch logits into a single array
+                all_birads_logits_np = np.concatenate(self.final_birads_logits, axis=0)
+                # Calculate probabilities using softmax
+                birads_probs = softmax(all_birads_logits_np, axis=1)
+                # Plot ROC
+                birads_auc = plot_roc_curve(
+                    self.final_birads_targets,
+                    birads_probs,
+                    self.birads_labels,
+                    "BI-RADS",
+                    self.plot_dir,
+                    self.name,
+                )
+
+            # Save report to text file (append AUC if calculated)
+            report_path = os.path.join(
+                self.plot_dir, f"{self.name}_birads_classification_report.txt"
+            )
+            with open(report_path, "w") as f:
+                f.write("BI-RADS Classification Report\n")
+                f.write("=" * 30 + "\n")
+                f.write(birads_report)
+                if birads_auc:
+                    f.write("\n\n--- ROC AUC Scores ---\n")
+                    f.write(f"Macro-average AUC: {birads_auc['macro']:.4f}\n")
+                    f.write(f"Micro-average AUC: {birads_auc['micro']:.4f}\n")
+                    for i, label in enumerate(self.birads_labels):
+                        f.write(f"AUC for class {label}: {birads_auc[i]:.4f}\n")
+
+        except Exception as e:
+            print(f"Error generating BI-RADS metrics: {e}")
+            import traceback
+
+            traceback.print_exc()  # Print stack trace for debugging ROC issues
+
+        # --- Density Metrics ---
+        try:
+
+            density_report = classification_report(
+                self.final_density_targets,
+                self.final_density_preds,
+                target_names=self.density_labels,
+                digits=4,
+                zero_division=0,
+            )
+
+            # Confusion Matrix (code unchanged)
+            cm_density = confusion_matrix(
+                self.final_density_targets,
+                self.final_density_preds,
+                labels=range(len(self.density_labels)),
+            )
+            plt.figure(figsize=(8, 6))
+            sns.heatmap(
+                cm_density,
+                annot=True,
+                fmt="d",
+                cmap="Greens",
+                xticklabels=self.density_labels,
+                yticklabels=self.density_labels,
+            )
+            plt.xlabel("Predicted Label")
+            plt.ylabel("True Label")
+            plt.title("Density Confusion Matrix")
+            plt.tight_layout()
+            cm_plot_path = os.path.join(
+                self.plot_dir, f"{self.name}_density_confusion_matrix.png"
+            )
+            plt.savefig(cm_plot_path)
+            plt.close()
+
+            # ROC Curve
+            density_auc = None
+            if self.final_density_logits:
+                # Concatenate list of batch logits into a single array
+                all_density_logits_np = np.concatenate(
+                    self.final_density_logits, axis=0
+                )
+                # Calculate probabilities using softmax
+                density_probs = softmax(all_density_logits_np, axis=1)
+                # Plot ROC
+                density_auc = plot_roc_curve(
+                    self.final_density_targets,
+                    density_probs,
+                    self.density_labels,
+                    "Density",
+                    self.plot_dir,
+                    self.name,
+                )
+
+            # Save report to text file (append AUC if calculated)
+            report_path = os.path.join(
+                self.plot_dir, f"{self.name}_density_classification_report.txt"
+            )
+            with open(report_path, "w") as f:
+                f.write("Density Classification Report\n")
+                f.write("=" * 30 + "\n")
+                f.write(density_report)
+                if density_auc:
+                    f.write("\n\n--- ROC AUC Scores ---\n")
+                    f.write(f"Macro-average AUC: {density_auc['macro']:.4f}\n")
+                    f.write(f"Micro-average AUC: {density_auc['micro']:.4f}\n")
+                    for i, label in enumerate(self.density_labels):
+                        f.write(f"AUC for class {label}: {density_auc[i]:.4f}\n")
+
+        except Exception as e:
+            print(f"Error generating Density metrics: {e}")
+            import traceback
+
+            traceback.print_exc()
 
     def save_metrics_plots(self):
         """Saves plots for validation metrics (Precision and Recall)."""
