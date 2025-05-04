@@ -19,7 +19,7 @@ class ClassificationDataset(Dataset):
         self,
         df: pd.DataFrame,
         image_dir: str,  # Directory containing the PNG images
-        img_size: Tuple[int, int] = (224, 224),
+        img_size: Tuple[int, int] = (800, 800),
         augment_duplicated: bool = True,
     ) -> None:
         self.df = df.reset_index(drop=True)
@@ -129,8 +129,8 @@ class ClassificationDataset(Dataset):
         density_label = self.density_map[row.breast_density]
 
         targets = {
-            "birads": torch.tensor(birads_label, dtype=torch.uint8).to(self.device),
-            "density": torch.tensor(density_label, dtype=torch.uint8).to(self.device),
+            "birads": torch.tensor(birads_label, dtype=torch.long).to(self.device),
+            "density": torch.tensor(density_label, dtype=torch.long).to(self.device),
         }
 
         return targets
