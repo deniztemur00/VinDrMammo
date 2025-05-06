@@ -14,7 +14,6 @@ from sklearn.metrics import (
     precision_score,
     roc_curve,
     auc,
-    roc_auc_score,
 )
 from sklearn.preprocessing import label_binarize
 import seaborn as sns
@@ -27,27 +26,27 @@ from scipy.special import softmax
 class TrainerConfig:
     epochs: int = 10
     lr: float = 5e-4
-    weight_decay: float = 0.1
+    weight_decay: float = 0.07
     model_dir: str = "models/"
     plot_dir: str = "plots/"
     name: str = None
-    birads_loss_weight: float = 0.7
-    density_loss_weight: float = 0.3
+    birads_loss_weight: float = 0.8
+    density_loss_weight: float = 0.2
     focal_loss_gamma: float = 2.0
     ##Calculated weights (inversely proportional):
     birads_class_weights = {
-        "BI-RADS 1": 0.4187758478081059,
-        "BI-RADS 2": 0.7113452757288373,
-        "BI-RADS 4": 1.977734375,
-        "BI-RADS 3": 2.072876151484135,
-        "BI-RADS 5": 4.5819004524886875,
+        "BI-RADS 1": 0.418775,
+        "BI-RADS 2": 0.711345,
+        "BI-RADS 3": 2.072876,
+        "BI-RADS 4": 1.977734,
+        "BI-RADS 5": 4.581900,
     }
 
     density_class_weights = {
-        "DENSITY A": 25.064356435643564,
-        "DENSITY B": 1.253217821782178,
-        "DENSITY C": 0.48459035222052066,
-        "DENSITY D": 0.9102840704782452,
+        "DENSITY A": 40.322581,
+        "DENSITY B": 1.556663,
+        "DENSITY C": 0.377872,
+        "DENSITY D": 1.456876,
     }
 
 
@@ -121,8 +120,11 @@ class ClassificationTrainer:
             list(config.density_class_weights.values()), device=self.device
         )
 
-        self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
-        self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
+        # self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
+        # self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
+
+        self.birads_loss_fn = nn.CrossEntropyLoss()
+        self.density_loss_fn = nn.CrossEntropyLoss(weight=self.density_class_weights)
 
         # Scheduler
         self.scheduler = CosineAnnealingLR(
@@ -252,7 +254,7 @@ class ClassificationTrainer:
                     self.birads_recall_scores.append(metrics["birads_recall"])
                     self.density_recall_scores.append(metrics["density_recall"])
                     self.save_metrics_plots()  # Save plots each epoch
-                    self.save_final_metrics_report()  # Save final metrics report
+
                     # print(
                     #    f"Epoch {epoch+1}/{self.epochs} - Validation Loss: {val_loss:.4f}, "
                     #    f"BiRADS F1: {metrics['birads_f1']:.4f}, Density F1: {metrics['density_f1']:.4f}"
@@ -266,10 +268,11 @@ class ClassificationTrainer:
                         self.save(
                             os.path.join(self.model_dir, f"{self.name}_best_model.pth")
                         )
+                        self.save_final_metrics_report()  # save only best metrics report
 
                 self.save(os.path.join(self.model_dir, f"{self.name}_last_epoch.pth"))
             self.save_loss_plot()
-            self.save_final_metrics_report()
+
             print("Training finished.")
             # Save final loss plots
 
@@ -280,7 +283,6 @@ class ClassificationTrainer:
             )
             self.save_loss_plot()
             self.save_metrics_plots()
-            self.save_final_metrics_report()
             print("Model saved.")
 
         # might return history
