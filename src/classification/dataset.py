@@ -19,7 +19,7 @@ class ClassificationDataset(Dataset):
         self,
         df: pd.DataFrame,
         image_dir: str,  # Directory containing the PNG images
-        img_size: Tuple[int, int] = (800, 800),
+        img_size: Tuple[int, int] = (224, 224),
         augment_duplicated: bool = True,
     ) -> None:
         self.df = df.reset_index(drop=True)
@@ -55,7 +55,7 @@ class ClassificationDataset(Dataset):
             [
                 A.Resize(height=img_size[0], width=img_size[1]),
                 # --- Augmentations Start ---
-                A.HorizontalFlip(p=0.5),  # Adjusted p=0.5 is common
+                A.HorizontalFlip(p=0.5),  # Adjusted p=0.5
                 A.ShiftScaleRotate(
                     shift_limit=0.05,
                     scale_limit=0.1,
@@ -105,11 +105,11 @@ class ClassificationDataset(Dataset):
             and row.get("is_duplicated", False)
         )
 
-        if not apply_augmentation:
-            transformed = self.base_transform(image=image)["image"]
-        else:
-            transformed = self.augment_transform(image=image)["image"]
-            # print("Augmentation applied")  # Optional debug print
+        # if not apply_augmentation:
+        transformed = self.base_transform(image=image)["image"]
+        # else:
+        #    transformed = self.augment_transform(image=image)["image"]
+        # print("Augmentation applied")  # Optional debug print
 
         image_tensor = transformed.to(self.device)
 
@@ -129,8 +129,8 @@ class ClassificationDataset(Dataset):
         density_label = self.density_map[row.breast_density]
 
         targets = {
-            "birads": torch.tensor(birads_label, dtype=torch.long).to(self.device),
-            "density": torch.tensor(density_label, dtype=torch.long).to(self.device),
+            "birads": torch.tensor(birads_label, dtype=torch.uint8).to(self.device),
+            "density": torch.tensor(density_label, dtype=torch.uint8).to(self.device),
         }
 
         return targets
