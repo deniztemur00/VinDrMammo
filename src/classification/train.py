@@ -129,7 +129,7 @@ class ClassificationTrainer:
         # Scheduler
         self.scheduler = CosineAnnealingLR(
             self.optimizer,
-            T_max=config.epochs,  # T_max often set to total epochs
+            T_max=config.epochs,
             eta_min=1e-6,
         )
 
