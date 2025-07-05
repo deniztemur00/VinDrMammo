@@ -50,3 +50,17 @@ class GMICConfig:
 
     # AttentionModule
     local_hidden_dim: int = 512  # output of LocalNetwork's ResNet
+
+    device_type = None
+    gpu_number = None
+    max_crop_noise: Tuple[int, int] = (100, 100)
+    max_crop_size_noise: int = 100
+    image_path = None
+    segmentation_path = None
+    output_path = None
+    cam_size: Tuple[int, int] = (14, 11) # 46x30 for 2944x1920
+    K: int = 6
+    crop_shape: Tuple[int, int] = (256, 256)
+    post_processing_dim: int = 256
+    num_classes: int = 2
+    use_v1_global: bool = False
