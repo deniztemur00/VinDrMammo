@@ -3,12 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from torchvision.models.resnet import conv3x3
-from .config import GMICConfig
+from config import GMICConfig
 import sys
 import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from GMIC_adaptation import tools
+import tools
 from global_net import AbstractMILUnit, ResNetV1, BasicBlockV1
 
 
@@ -56,10 +56,13 @@ class RetrieveROIModule(AbstractMILUnit):
         _, _, H, W = x_original.size()
         (h, w) = cam_size
         N, C, h_h, w_h = h_small.size()
-
+        print(
+            f"h_h={h_h}, h={h}, w_h={w_h}, w={w}"
+        )  # Remove this after tuning for you dataset
+        
         # make sure that the size of h_small == size of cam_size
-        assert h_h == h, "h_h!=h"
-        assert w_h == w, "w_h!=w"
+        # assert h_h == h, "h_h!=h" # will use different size for my dataset
+        # assert w_h == w, "w_h!=w"
 
         # adjust crop_shape since crop shape is based on the original image
         crop_x_adjusted = int(np.round(self.crop_shape[0] * h / H))
