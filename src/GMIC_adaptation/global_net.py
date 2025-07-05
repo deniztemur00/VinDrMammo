@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torchvision.models.resnet import conv3x3
-from .config import GMICConfig
-
+from config import GMICConfig
 
 
 class BasicBlockV2(nn.Module):
@@ -260,7 +259,7 @@ class AbstractMILUnit:
 
     def __init__(self, config: GMICConfig, parent_module):
         self.config = config
-        self.parent_module = parent_module
+        self.parent_module: nn.Module = parent_module
 
 
 class PostProcessingStandard(nn.Module):
@@ -286,7 +285,7 @@ class GlobalNetwork(AbstractMILUnit):
     """
 
     def __init__(self, config: GMICConfig, parent_module):
-        super(GlobalNetwork, self).__init__(config, parent_module)
+        super(GlobalNetwork, self).__init__(config=config, parent_module=parent_module)
         # downsampling-branch
         if config.use_v1_global:
             self.downsampling_branch = DownsampleNetworkResNet18V1(config)
