@@ -13,8 +13,7 @@ def get_max_window(input_image, window_shape, pooling_logic="avg"):
     :return: N*C*2 tensor
     """
     N, C, H, W = input_image.size()
-    agg_res:torch.Tensor = None
-    pool_map:torch.Tensor = None
+
 
     if pooling_logic == "avg":
         # use average pooling to locate the window sums
