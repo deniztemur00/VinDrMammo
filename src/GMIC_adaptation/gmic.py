@@ -4,40 +4,39 @@ import numpy as np
 import tools
 import modules as m
 from global_net import GlobalNetwork
+from config import GMICConfig
 
 
 class GMIC(nn.Module):
-    def __init__(self, parameters):
+    def __init__(self, config: GMICConfig):
         super(GMIC, self).__init__()
 
-        # save parameters
-        self.experiment_parameters = parameters
-        self.cam_size = parameters["cam_size"]
+        # save config
+        self.config = config
+        self.cam_size = config.cam_size
 
         # construct networks
         # global network
-        self.global_network = GlobalNetwork(self.experiment_parameters, self)
+        self.global_network = GlobalNetwork(config=config, parent_module=self)
         self.global_network.add_layers()
 
         # aggregation function
-        self.aggregation_function = m.TopTPercentAggregationFunction(
-            self.experiment_parameters, self
-        )
+        self.aggregation_function = m.TopTPercentAggregationFunction(self.config, self)
 
         # detection module
-        self.retrieve_roi_crops = m.RetrieveROIModule(self.experiment_parameters, self)
+        self.retrieve_roi_crops = m.RetrieveROIModule(self.config, self)
 
         # detection network
-        self.local_network = m.LocalNetwork(self.experiment_parameters, self)
+        self.local_network = m.LocalNetwork(self.config, self)
         self.local_network.add_layers()
 
         # MIL module
-        self.attention_module = m.AttentionModule(self.experiment_parameters, self)
+        self.attention_module = m.AttentionModule(self.config, self)
         self.attention_module.add_layers()
 
         # fusion branch
         self.fusion_dnn = nn.Linear(
-            parameters["post_processing_dim"] + 512, parameters["num_classes"]
+            config.post_processing_dim + 512, config.num_classes
         )
 
     def _convert_crop_position(self, crops_x_small, cam_size, x_original):
@@ -76,19 +75,17 @@ class GMIC(nn.Module):
         :return:
         """
         batch_size, num_crops, _ = crop_positions.shape
-        crop_h, crop_w = self.experiment_parameters["crop_shape"]
+        crop_h, crop_w = self.config.crop_shape
 
         output = torch.ones((batch_size, num_crops, crop_h, crop_w))
-        if self.experiment_parameters["device_type"] == "gpu":
-            device = torch.device(
-                "cuda:{}".format(self.experiment_parameters["gpu_number"])
-            )
+        if self.config.device_type == "gpu":
+            device = torch.device("cuda:{}".format(self.config.gpu_number))
             output = output.cuda().to(device)
         for i in range(batch_size):
             for j in range(num_crops):
                 tools.crop_pytorch(
                     x_original_pytorch[i, 0, :, :],
-                    self.experiment_parameters["crop_shape"],
+                    self.config.crop_shape,
                     crop_positions[i, j, :],
                     output[i, j, :, :],
                     method=crop_method,
@@ -141,3 +138,17 @@ class GMIC(nn.Module):
         self.y_fusion = torch.sigmoid(self.fusion_dnn(concat_vec))
 
         return self.y_fusion
+
+## SUCCESFUL EXECUTION ON LOCAL MACHINE
+def main():
+    # Example usage
+    config = GMICConfig()
+    model = GMIC(config=config)
+    x_original = torch.randn(2, 1, 890, 650)  # Example input
+    output = model(x_original)
+    print(output.shape)
+    print(output)
+
+
+if __name__ == "__main__":
+    main()
