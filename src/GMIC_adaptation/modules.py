@@ -4,10 +4,8 @@ import torch.nn.functional as F
 import numpy as np
 from torchvision.models.resnet import conv3x3
 from config import GMICConfig
-import sys
-import os
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+
 import tools
 from global_net import AbstractMILUnit, ResNetV1, BasicBlockV1
 
