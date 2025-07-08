@@ -10,3 +10,4 @@ metadata/
 VinDrMammoNotebooks/
 deprecated/
 src/sota/retinanet/
+**.pth
