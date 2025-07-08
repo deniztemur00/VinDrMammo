@@ -20,7 +20,7 @@ class RetinaNetConfig:
     num_density_classes: int = 4  # Density A-D
     detections_per_img: int = 10
     top_k_candidates: int = 100
-    nms_thresh: float = 0.5
+    nms_thresh: float = 0.7
     image_mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
     image_std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
     anchor_sizes = (
