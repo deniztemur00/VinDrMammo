@@ -14,8 +14,8 @@ from typing import Tuple
 class BaseClassifierConfig:
     """Base configuration for classifiers."""
 
-    num_birads_classes: int = 5  # Example: BI-RADS 1-5
-    num_density_classes: int = 4  # Example: Density A-D
+    num_birads_classes: int = 5  # BI-RADS 1-5
+    num_density_classes: int = 4  # Density A-D
     input_channels: int = 3
     image_size: Tuple[int, int] = (224, 224)  # Default size for many models
 
