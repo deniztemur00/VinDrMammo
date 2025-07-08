@@ -4,7 +4,7 @@ import numpy as np
 import tools
 import modules as m
 from global_net import GlobalNetwork
-from config import GMICConfig
+from src.sota.config import GMICConfig
 
 
 class GMIC(nn.Module):
@@ -78,7 +78,7 @@ class GMIC(nn.Module):
         crop_h, crop_w = self.config.crop_shape
 
         output = torch.ones((batch_size, num_crops, crop_h, crop_w))
-        if self.config.device_type == "gpu":
+        if torch.cuda.is_available():
             device = torch.device("cuda:{}".format(self.config.gpu_number))
             output = output.cuda().to(device)
         for i in range(batch_size):
@@ -98,6 +98,9 @@ class GMIC(nn.Module):
         """
         # global network: x_small -> class activation map
         h_g, self.saliency_map = self.global_network.forward(x_original)
+        print(f"saliency_map shape: {self.saliency_map.shape}")
+
+        print(f" h_g shape: {h_g.shape}")
 
         # calculate y_global
         # note that y_global is not directly used in inference
@@ -107,18 +110,21 @@ class GMIC(nn.Module):
         small_x_locations = self.retrieve_roi_crops.forward(
             x_original, self.cam_size, self.saliency_map
         )
+        print(f"small_x_locations shape: {small_x_locations.shape}")
 
         # convert crop locations that is on self.cam_size to x_original
         self.patch_locations = self._convert_crop_position(
             small_x_locations, self.cam_size, x_original
         )
 
+        print(f"patch_locations shape: {self.patch_locations.shape}")
+
         # patch retriever
         crops_variable = self._retrieve_crop(
             x_original, self.patch_locations, self.retrieve_roi_crops.crop_method
         )
         self.patches = crops_variable.data.cpu().numpy()
-
+        
         # detection network
         batch_size, num_crops, I, J = crops_variable.size()
         crops_variable = crops_variable.view(batch_size * num_crops, I, J).unsqueeze(1)
@@ -139,10 +145,12 @@ class GMIC(nn.Module):
 
         return self.y_fusion
 
+
 ## SUCCESFUL EXECUTION ON LOCAL MACHINE
 def main():
-    # Example usage
-    config = GMICConfig()
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    config = GMICConfig(device_type=device)
+
     model = GMIC(config=config)
     x_original = torch.randn(2, 1, 890, 650)  # Example input
     output = model(x_original)

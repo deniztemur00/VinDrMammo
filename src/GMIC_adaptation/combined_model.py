@@ -8,7 +8,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-from config import GMICConfig
+from src.sota.config import GMICConfig
 import modules as m
 from detection.retinanet_v2 import CustomRetinaNet, RetinaNetConfig
 
@@ -97,7 +97,6 @@ class CombinedDetectorGMIC(nn.Module):
 
 
 def main():
-    # Example usage
     detection_config = RetinaNetConfig(num_classes=5)
     gmic_config = GMICConfig(num_classes=5, local_hidden_dim=512, crop_shape=(224, 224))
 

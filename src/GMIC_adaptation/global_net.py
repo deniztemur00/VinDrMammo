@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-import numpy as np
 from torchvision.models.resnet import conv3x3
-from config import GMICConfig
+from GMIC_adaptation.config import GMICConfig
 
 
 class BasicBlockV2(nn.Module):
@@ -303,4 +302,5 @@ class GlobalNetwork(AbstractMILUnit):
         last_feature_map = self.downsampling_branch.forward(x)
         # feed into postprocessing network
         cam = self.postprocess_module.forward(last_feature_map)
+        print(f"cam shape: {cam.shape}, last_feature_map shape: {last_feature_map.shape}")
         return last_feature_map, cam

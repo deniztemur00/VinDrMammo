@@ -3,11 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from torchvision.models.resnet import conv3x3
-from config import GMICConfig
+
+from GMIC_adaptation.config import GMICConfig
 
 
-import tools
-from global_net import AbstractMILUnit, ResNetV1, BasicBlockV1
+from GMIC_adaptation import tools
+from GMIC_adaptation.global_net import AbstractMILUnit, ResNetV1, BasicBlockV1
 
 
 class TopTPercentAggregationFunction(AbstractMILUnit):
