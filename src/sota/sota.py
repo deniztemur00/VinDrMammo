@@ -22,7 +22,9 @@ class SOTA(nn.Module):
 
         # fusion branch
         self.fusion_dnn = nn.Linear(
-            515, config.num_classes  ## Chaning this according to my dim
+            768,
+            config.num_classes,  ## Chaning this according to my dim
+            # change 768 to the correct dimension later
         )
 
     def forward(self, images, targets=None):
@@ -60,23 +62,25 @@ class SOTA(nn.Module):
         h_crops = h_crops.view(
             len(detections), -1, h_crops.size(-1)
         )  # Reshape for MIL module
-        print(f"h_crops shape: {h_crops.shape}")
+        # print(f"h_crops shape: {h_crops.shape}")
         # Step 4: MIL module: Compute attention-weighted features
         z, self.patch_attns, self.y_local = self.attention_module.forward(h_crops)
-        print(
-            f"z shape: {z.shape}, patch_attns shape: {self.patch_attns.shape}, y_local shape: {self.y_local.shape}"
-        )
+        # print(
+        #    f"z shape: {z.shape}, patch_attns shape: {self.patch_attns.shape}, y_local shape: {self.y_local.shape}"
+        # )
 
         # backbone features shape: (batch_size,256,h,w)
         # hxw = (64, 64) , (32,32), (16,16), (8,8), (4,4)
+        last_feature_map = features[-1]
 
+        g1, _ = torch.max(last_feature_map, dim=2)
+        global_vec, _ = torch.max(g1, dim=2)
 
-        # Step 5: Fusion branch: Combine global and local features
-        global_vec = torch.mean(images, dim=[2, 3])
         concat_vec = torch.cat([global_vec, z], dim=1)
+        # print(f"concat_vec shape: {concat_vec.shape}")
         self.y_fusion = torch.sigmoid(self.fusion_dnn(concat_vec))
 
-        if self.training and targets is not None:
+        if self.training:
             return detection_loss, self.y_fusion
         else:
-            return self.y_fusion
+            return detections, self.y_fusion
