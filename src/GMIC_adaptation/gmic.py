@@ -4,7 +4,8 @@ import numpy as np
 import tools
 import modules as m
 from global_net import GlobalNetwork
-from src.sota.config import GMICConfig
+#from src.sota.config import GMICConfig
+from config import GMICConfig
 
 
 class GMIC(nn.Module):
@@ -124,13 +125,16 @@ class GMIC(nn.Module):
             x_original, self.patch_locations, self.retrieve_roi_crops.crop_method
         )
         self.patches = crops_variable.data.cpu().numpy()
-        
+
         # detection network
         batch_size, num_crops, I, J = crops_variable.size()
         crops_variable = crops_variable.view(batch_size * num_crops, I, J).unsqueeze(1)
         h_crops = self.local_network.forward(crops_variable).view(
             batch_size, num_crops, -1
         )
+        print(f"batch_size: {batch_size}, num_crops: {num_crops}, I: {I}, J: {J}")
+        print(f"crops_variable shape: {crops_variable.shape}")
+        print(f"h_crops shape: {h_crops.shape}")
 
         # MIL module
         # y_local is not directly used during inference

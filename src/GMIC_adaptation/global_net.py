@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torchvision.models.resnet import conv3x3
 from GMIC_adaptation.config import GMICConfig
+#from config import GMICConfig
 
 
 class BasicBlockV2(nn.Module):
