@@ -33,15 +33,13 @@ class SOTA(nn.Module):
         """
         # Step 1: Run the detection network (global module)
         if self.training and targets is not None:
-            detection_loss, detections = self.detection_net([images, targets])
+            detection_loss, detections, features = self.detection_net([images, targets])
         else:
-            detections = self.detection_net(images)
+            detections, features = self.detection_net(images)
 
         # Step 2: Process detections (bounding boxes)
         all_patches = []
-        for i, detection in enumerate(
-            detections
-        ):  # Iterate over detections for each image
+        for i, detection in enumerate(detections):
             class_scores, class_indices, bboxes = detection
             for bbox in bboxes:
                 x1, y1, x2, y2 = [int(coord) for coord in bbox]
@@ -62,12 +60,17 @@ class SOTA(nn.Module):
         h_crops = h_crops.view(
             len(detections), -1, h_crops.size(-1)
         )  # Reshape for MIL module
-
+        print(f"h_crops shape: {h_crops.shape}")
         # Step 4: MIL module: Compute attention-weighted features
         z, self.patch_attns, self.y_local = self.attention_module.forward(h_crops)
         print(
             f"z shape: {z.shape}, patch_attns shape: {self.patch_attns.shape}, y_local shape: {self.y_local.shape}"
         )
+
+        # backbone features shape: (batch_size,256,h,w)
+        # hxw = (64, 64) , (32,32), (16,16), (8,8), (4,4)
+
+
         # Step 5: Fusion branch: Combine global and local features
         global_vec = torch.mean(images, dim=[2, 3])
         concat_vec = torch.cat([global_vec, z], dim=1)
