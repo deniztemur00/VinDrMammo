@@ -10,7 +10,7 @@ class GMICConfig:
     """
 
     # General
-    num_classes: int = 2
+    num_classes: int = 5
     input_channels: int = 1
 
     # ResNetV2 & GlobalNetwork
