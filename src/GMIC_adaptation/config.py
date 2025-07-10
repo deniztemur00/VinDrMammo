@@ -4,13 +4,15 @@ from typing import List, Tuple
 
 
 @dataclass
-class GMICConfig:
+class GlobalConfig:
     """
     Configuration for the GMIC model and its components.
     """
 
     # General
-    num_classes: int = 5
+    n_birads: int = 5
+    n_density: int = 4
+    n_findings: int = 4
     input_channels: int = 1
 
     # ResNetV2 & GlobalNetwork
@@ -58,5 +60,4 @@ class GMICConfig:
     K: int = 6
     crop_shape: Tuple[int, int] = (256, 256)
     post_processing_dim: int = 256
-    num_classes: int = 2
     use_v1_global: bool = False
