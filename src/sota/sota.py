@@ -1,12 +1,13 @@
 import torch
 from torch import nn
 from retinanet import model
-from GMIC_adaptation.config import GMICConfig
+from GMIC_adaptation.config import GlobalConfig
 import GMIC_adaptation.modules as m
+from density_attention import DensityAttention
 
 
 class SOTA(nn.Module):
-    def __init__(self, config: GMICConfig):
+    def __init__(self, config: GlobalConfig):
         super(SOTA, self).__init__()
         self.config = config
 
@@ -20,19 +21,19 @@ class SOTA(nn.Module):
         self.attention_module = m.AttentionModule(self.config, self)
         self.attention_module.add_layers()
 
+        self.density_net = DensityAttention(
+            in_channels=self.config.post_processing_dim, out_features=config.n_density
+        )
+
         # fusion branch
         self.fusion_dnn = nn.Linear(
             768,
-            config.num_classes,  ## Chaning this according to my dim
+            config.n_birads,  ## Chaning this according to my dim
             # change 768 to the correct dimension later
         )
 
     def forward(self, images, targets=None):
-        """
-        :param images: Input images (N, C, H, W) PyTorch tensor
-        :param targets: Optional targets for training
-        :return: Final predictions from the fusion module
-        """
+
         # Step 1: Run the detection network (global module)
         if self.training and targets is not None:
             detection_loss, detections, features = self.detection_net([images, targets])
@@ -73,14 +74,15 @@ class SOTA(nn.Module):
         # hxw = (64, 64) , (32,32), (16,16), (8,8), (4,4)
         last_feature_map = features[-1]
 
+        density_logits = self.density_net(last_feature_map)
         g1, _ = torch.max(last_feature_map, dim=2)
         global_vec, _ = torch.max(g1, dim=2)
 
         concat_vec = torch.cat([global_vec, z], dim=1)
         # print(f"concat_vec shape: {concat_vec.shape}")
-        self.y_fusion = torch.sigmoid(self.fusion_dnn(concat_vec))
+        self.y_fusion_birads = torch.sigmoid(self.fusion_dnn(concat_vec))
 
         if self.training:
-            return detection_loss, self.y_fusion
+            return detection_loss, self.y_fusion_birads, density_logits
         else:
-            return detections, self.y_fusion
+            return detections, self.y_fusion_birads, density_logits
