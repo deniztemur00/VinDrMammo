@@ -10,8 +10,6 @@ class DensityAttention(nn.Module):
     def __init__(self, in_channels: int, out_features: int = 4):
         super(DensityAttention, self).__init__()
 
-        # These convolutional layers function as the Q, K projections to create
-        # a spatial attention map. The 'value' is the input feature map itself.
         self.attention_conv = nn.Sequential(
             nn.Conv2d(in_channels, in_channels // 8, kernel_size=1, bias=False),
             nn.ReLU(inplace=True),
