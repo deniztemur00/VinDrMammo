@@ -4,12 +4,13 @@ import numpy as np
 import tools
 import modules as m
 from global_net import GlobalNetwork
-#from src.sota.config import GMICConfig
-from config import GMICConfig
+
+# from src.sota.config import GlobalConfig
+from config import GlobalConfig
 
 
 class GMIC(nn.Module):
-    def __init__(self, config: GMICConfig):
+    def __init__(self, config: GlobalConfig):
         super(GMIC, self).__init__()
 
         # save config
@@ -37,7 +38,7 @@ class GMIC(nn.Module):
 
         # fusion branch
         self.fusion_dnn = nn.Linear(
-            config.post_processing_dim + 512, config.num_classes
+            config.post_processing_dim + 512, config.n_birads
         )
 
     def _convert_crop_position(self, crops_x_small, cam_size, x_original):
@@ -153,7 +154,7 @@ class GMIC(nn.Module):
 ## SUCCESFUL EXECUTION ON LOCAL MACHINE
 def main():
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    config = GMICConfig(device_type=device)
+    config = GlobalConfig(device_type=device)
 
     model = GMIC(config=config)
     x_original = torch.randn(2, 1, 890, 650)  # Example input

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from torchvision.models.resnet import conv3x3
 
-from GMIC_adaptation.config import GMICConfig
+from GMIC_adaptation.config import GlobalConfig
 
 
 from GMIC_adaptation import tools
@@ -17,7 +17,7 @@ class TopTPercentAggregationFunction(AbstractMILUnit):
     Use the sum of topK value
     """
 
-    def __init__(self, config: GMICConfig, parent_module):
+    def __init__(self, config: GlobalConfig, parent_module):
         super(TopTPercentAggregationFunction, self).__init__(config, parent_module)
         self.percent_t = config.percent_t
         self.parent_module = parent_module
@@ -36,7 +36,7 @@ class RetrieveROIModule(AbstractMILUnit):
     Greedy select crops with largest sums
     """
 
-    def __init__(self, config: GMICConfig, parent_module):
+    def __init__(self, config: GlobalConfig, parent_module):
         super(RetrieveROIModule, self).__init__(config, parent_module)
         self.crop_method = "upper_left"
         self.num_crops_per_class = config.K
@@ -58,7 +58,7 @@ class RetrieveROIModule(AbstractMILUnit):
         print(
             f"h_h={h_h}, h={h}, w_h={w_h}, w={w}"
         )  # Remove this after tuning for you dataset
-        
+
         # make sure that the size of h_small == size of cam_size
         # assert h_h == h, "h_h!=h" # will use different size for my dataset
         # assert w_h == w, "w_h!=w"
@@ -140,7 +140,7 @@ class AttentionModule(AbstractMILUnit):
         self.parent_module.mil_attn_w = nn.Linear(128, 1, bias=False)
         # classifier
         self.parent_module.classifier_linear = nn.Linear(
-            self.config.local_hidden_dim, self.config.num_classes, bias=False
+            self.config.local_hidden_dim, self.config.n_birads, bias=False
         )
 
     def forward(self, h_crops):

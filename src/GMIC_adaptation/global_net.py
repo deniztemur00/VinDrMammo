@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 from torchvision.models.resnet import conv3x3
-from GMIC_adaptation.config import GMICConfig
-#from config import GMICConfig
+from GMIC_adaptation.config import GlobalConfig
+
+# from config import GlobalConfig
 
 
 class BasicBlockV2(nn.Module):
@@ -85,7 +86,7 @@ class ResNetV2(nn.Module):
     Adapted fom torchvision ResNet, converted to v2
     """
 
-    def __init__(self, config: GMICConfig, block_fn):
+    def __init__(self, config: GlobalConfig, block_fn):
         super(ResNetV2, self).__init__()
         self.first_conv = nn.Conv2d(
             in_channels=config.input_channels,
@@ -158,7 +159,7 @@ class ResNetV1(nn.Module):
     Class that represents a ResNet with classifier sequence removed
     """
 
-    def __init__(self, config: GMICConfig, block):
+    def __init__(self, config: GlobalConfig, block):
 
         self.inplanes = config.initial_filters_v1
         self.num_layers = len(config.layers_v1)
@@ -242,7 +243,7 @@ class DownsampleNetworkResNet18V1(ResNetV1):
     First conv is 7*7, stride 2, padding 3, cut 1/2 resolution
     """
 
-    def __init__(self, config: GMICConfig):
+    def __init__(self, config: GlobalConfig):
         super(DownsampleNetworkResNet18V1, self).__init__(
             config=config, block=BasicBlockV1
         )
@@ -257,7 +258,7 @@ class AbstractMILUnit:
     An abstract class that represents an MIL unit module
     """
 
-    def __init__(self, config: GMICConfig, parent_module):
+    def __init__(self, config: GlobalConfig, parent_module):
         self.config = config
         self.parent_module: nn.Module = parent_module
 
@@ -267,11 +268,11 @@ class PostProcessingStandard(nn.Module):
     Unit in Global Network that takes in x_out and produce saliency maps
     """
 
-    def __init__(self, config: GMICConfig):
+    def __init__(self, config: GlobalConfig):
         super(PostProcessingStandard, self).__init__()
         # map all filters to output classes
         self.gn_conv_last = nn.Conv2d(
-            config.post_processing_dim, config.num_classes, (1, 1), bias=False
+            config.post_processing_dim, config.n_birads, (1, 1), bias=False
         )
 
     def forward(self, x_out):
@@ -284,7 +285,7 @@ class GlobalNetwork(AbstractMILUnit):
     Implementation of Global Network using ResNet-22
     """
 
-    def __init__(self, config: GMICConfig, parent_module):
+    def __init__(self, config: GlobalConfig, parent_module):
         super(GlobalNetwork, self).__init__(config=config, parent_module=parent_module)
         # downsampling-branch
         if config.use_v1_global:
@@ -303,5 +304,7 @@ class GlobalNetwork(AbstractMILUnit):
         last_feature_map = self.downsampling_branch.forward(x)
         # feed into postprocessing network
         cam = self.postprocess_module.forward(last_feature_map)
-        print(f"cam shape: {cam.shape}, last_feature_map shape: {last_feature_map.shape}")
+        print(
+            f"cam shape: {cam.shape}, last_feature_map shape: {last_feature_map.shape}"
+        )
         return last_feature_map, cam

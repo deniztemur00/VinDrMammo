@@ -5,16 +5,17 @@ from typing import List, Dict, Optional
 
 import sys
 import os
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-from src.sota.config import GMICConfig
+from src.sota.config import GlobalConfig
 import modules as m
 from detection.retinanet_v2 import CustomRetinaNet, RetinaNetConfig
 
 
 class CombinedDetectorGMIC(nn.Module):
-    def __init__(self, detection_config: RetinaNetConfig, gmic_config: GMICConfig):
+    def __init__(self, detection_config: RetinaNetConfig, gmic_config: GlobalConfig):
         super().__init__()
         self.detection_net = CustomRetinaNet(detection_config)
         self.gmic_config = gmic_config
@@ -40,18 +41,17 @@ class CombinedDetectorGMIC(nn.Module):
     ):
 
         if self.training and targets is not None:
-            
+
             detector_output = self.detection_net(images, targets)
             global_features = self.detection_net.feature_maps["pool"]
-            
+
             boxes_list = [t["boxes"] for t in targets]
         else:
-            
+
             detector_output = self.detection_net(images)
             global_features = detector_output["features"]
             boxes_list = [d["boxes"] for d in detector_output["detections"]]
 
-        
         all_patches = []
         for i, image in enumerate(images):
             boxes = boxes_list[i]
@@ -67,18 +67,16 @@ class CombinedDetectorGMIC(nn.Module):
                     all_patches.append(patch)
 
         if not all_patches:
-           
+
             print("no boxes found")
             return detector_output
 
         patches_tensor = torch.stack(all_patches)
 
-        
         h_crops = self.local_network.forward(patches_tensor)
-        
+
         h_crops = h_crops.unsqueeze(0)  # pseudo-batch for the attention module
 
-        
         z, _, _ = self.attention_module.forward(h_crops)
 
         global_vec = global_features.mean(dim=[2, 3])  # Global Average Pooling
@@ -98,7 +96,9 @@ class CombinedDetectorGMIC(nn.Module):
 
 def main():
     detection_config = RetinaNetConfig(num_classes=5)
-    gmic_config = GMICConfig(num_classes=5, local_hidden_dim=512, crop_shape=(224, 224))
+    gmic_config = GlobalConfig(
+        num_classes=5, local_hidden_dim=512, crop_shape=(224, 224)
+    )
 
     combined_model = CombinedDetectorGMIC(detection_config, gmic_config)
     combined_model.eval()
@@ -107,7 +107,7 @@ def main():
     targets = None  # No targets for inference
     with torch.no_grad():
         output = combined_model(images, targets)
-    print(output["fusion_logits"]) 
+    print(output["fusion_logits"])
 
 
 if __name__ == "__main__":
