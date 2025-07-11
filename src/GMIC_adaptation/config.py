@@ -13,7 +13,7 @@ class GlobalConfig:
     n_birads: int = 3
     n_density: int = 4
     n_findings: int = 3
-    input_channels: int = 1
+    input_channels: int = 3
 
     # ResNetV2 & GlobalNetwork
     use_v1_global: bool = False
@@ -31,7 +31,7 @@ class GlobalConfig:
     # ResNetV1 & DownsampleNetworkResNet18V1
     initial_filters_v1: int = 64
     layers_v1: List[int] = field(default_factory=lambda: [2, 2, 2, 2])
-    input_channels_v1: int = 1
+    input_channels_v1: int = 3
 
     # PostProcessingStandard
     post_processing_dim: int = 512
