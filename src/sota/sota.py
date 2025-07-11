@@ -81,14 +81,19 @@ class SOTA(nn.Module):
         concat_vec = torch.cat([global_vec, z], dim=1)
         # print(f"concat_vec shape: {concat_vec.shape}")
         self.y_fusion_birads = self.fusion_dnn(concat_vec)
-        loss_dict = {
-            "birads": self.y_fusion_birads,
-            "density": density_logits,
-            "detection_cls": detection_loss[0],
-            "detection_reg": detection_loss[1],
-        }
 
         if self.training:
+            loss_dict = {
+                "birads_logits": self.y_fusion_birads,
+                "density_logits": density_logits,
+                "finding_loss": detection_loss[0],
+                "reg_loss": detection_loss[1],
+            }
             return loss_dict
         else:
-            return detections, self.y_fusion_birads, density_logits
+            inference_results = {
+                "detections": detections,
+                "birads_logits": self.y_fusion_birads,
+                "density_logits": density_logits,
+            }
+            return inference_results
