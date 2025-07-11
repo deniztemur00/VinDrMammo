@@ -200,7 +200,9 @@ def collate_fn(batch):
     images = [item[0] for item in batch]
     targets = [item[1] for item in batch]
 
-    # Stack birads and density for batch
+    # Stack images into a batch tensor
+    images = torch.stack(images, dim=0)
+
     birads = torch.stack([t["birads"] for t in targets])
     density = torch.stack([t["density"] for t in targets])
     detections = [t["detections"] for t in targets]  # keep as list of tensors
@@ -208,6 +210,6 @@ def collate_fn(batch):
     batch_targets = {
         "birads": birads,
         "density": density,
-        "detections": detections,  # <-- add this line
+        "detections": detections,
     }
     return images, batch_targets
