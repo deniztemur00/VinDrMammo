@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
 import torch
+import ast
 from typing import Dict, Tuple
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -111,7 +112,7 @@ class SOTADataset(Dataset):
         apply_augmentation = (
             row.get("split") == "training"
             and self.augment_duplicated
-            and row.get("is_duplicated", False)
+            and row.get("is_oversampled", False)
         )
 
         # if not apply_augmentation:
