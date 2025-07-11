@@ -421,7 +421,7 @@ class SOTATrainer:
             "total_loss": total_loss,
         }
 
-    def _prepare_map(self, outputs, dummy_annotations):
+    def _prepare_map(self, outputs, annotations):
         """
         Processes model outputs and ground truth annotations for a full batch
         to prepare them for the mAP metric.
@@ -452,8 +452,8 @@ class SOTATrainer:
                     "scores": cls_scores[valid_indices],
                 }
             )
-
-            annotation = dummy_annotations[i].cpu()
+            print("success so far")
+            annotation = annotations[i].cpu()
 
             all_targets.append(
                 {
