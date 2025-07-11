@@ -197,22 +197,17 @@ class SOTADataset(Dataset):
 
 
 def collate_fn(batch):
-    """
-    Custom collate function to handle the dictionary of targets.
-    """
-    images = []
-    targets_birads = []
-    targets_density = []
+    images = [item[0] for item in batch]
+    targets = [item[1] for item in batch]
 
-    for img, target in batch:
-        images.append(img)
-        targets_birads.append(target["birads"])
-        targets_density.append(target["density"])
+    # Stack birads and density for batch
+    birads = torch.stack([t["birads"] for t in targets])
+    density = torch.stack([t["density"] for t in targets])
+    detections = [t["detections"] for t in targets]  # keep as list of tensors
 
-    images = torch.stack(images, dim=0)
-    targets = {
-        "birads": torch.stack(targets_birads, dim=0),
-        "density": torch.stack(targets_density, dim=0),
+    batch_targets = {
+        "birads": birads,
+        "density": density,
+        "detections": detections,  # <-- add this line
     }
-
-    return images, targets
+    return images, batch_targets
