@@ -15,7 +15,7 @@ FINDING_CATEGORIES_TOP3 = [
 ]
 
 
-class ClassificationDataset(Dataset):
+class SOTADataset(Dataset):
     """
     Dataset for classifying breast BI-RADS and density using PNG images.
     Applies augmentations only to rows marked as duplicated.

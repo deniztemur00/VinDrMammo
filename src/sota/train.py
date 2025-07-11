@@ -74,7 +74,7 @@ class FocalLoss(nn.Module):
             return focal_term
 
 
-class ClassificationTrainer:
+class SOTATrainer:
     def __init__(
         self,
         model: torch.nn.Module,
