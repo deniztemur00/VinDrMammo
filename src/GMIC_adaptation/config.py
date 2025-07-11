@@ -13,7 +13,7 @@ class GlobalConfig:
     n_birads: int = 3
     n_density: int = 4
     n_findings: int = 3
-    input_channels: int = 3
+    input_channels: int = 1
 
     # ResNetV2 & GlobalNetwork
     use_v1_global: bool = False
