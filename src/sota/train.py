@@ -124,8 +124,9 @@ class SOTATrainer:
         # self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
         # self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
 
-        self.birads_loss_fn = nn.CrossEntropyLoss(self.birads_class_weights)
-        self.density_loss_fn = nn.CrossEntropyLoss(weight=self.density_class_weights)
+        # removed weighting because dataset is resampled to balance classes
+        self.birads_loss_fn = nn.CrossEntropyLoss()
+        self.density_loss_fn = nn.CrossEntropyLoss()
 
         # Scheduler
         self.scheduler = CosineAnnealingLR(
