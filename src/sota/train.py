@@ -452,8 +452,8 @@ class SOTATrainer:
                     "scores": cls_scores[valid_indices],
                 }
             )
-            print("success so far")
-            annotation = annotations[i].cpu()
+            
+            annotation = annotations["detections"][i].cpu()
 
             all_targets.append(
                 {
