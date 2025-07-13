@@ -199,8 +199,8 @@ class SOTATrainer:
                     outputs = self.model(images, targets)
 
                     loss, loss_dict = self._calculate_loss(outputs, targets)
-                    finding_loss = outputs["finding_loss"].item()
-                    reg_loss = outputs["reg_loss"].item()
+                    finding_loss = outputs["finding_loss"]
+                    reg_loss = outputs["reg_loss"]
 
                     loss.backward()
                     finding_loss.backward()
@@ -211,10 +211,10 @@ class SOTATrainer:
 
                     self.optimizer.step()
 
-                    epoch_loss += loss.item() + finding_loss + reg_loss
+                    epoch_loss += loss.item() + finding_loss.item() + reg_loss.item()
                     epoch_birads_loss += loss_dict["birads_loss"].item()
                     epoch_density_loss += loss_dict["density_loss"].item()
-                    epoch_detection_loss += finding_loss + reg_loss
+                    epoch_detection_loss += finding_loss.item() + reg_loss.item()
                     batch_count += 1
 
                     # Update progress bar postfix
