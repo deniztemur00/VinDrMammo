@@ -12,7 +12,7 @@ class SOTA(nn.Module):
         self.config = config
 
         # Initialize the detection network
-        self.detection_net = model.resnet18(num_classes=3, pretrained=True)
+        self.detection_net = model.resnet18(num_classes=config.n_findings, pretrained=True)
 
         self.local_network = m.LocalNetwork(self.config, self)
         self.local_network.add_layers()
