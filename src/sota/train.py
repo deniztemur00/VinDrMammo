@@ -621,6 +621,7 @@ class SOTATrainer:
                 self.final_birads_targets,
                 self.final_birads_preds,
                 target_names=self.birads_labels,
+                labels=range(len(self.birads_labels)),
                 digits=4,
                 zero_division=0,
             )
@@ -696,6 +697,7 @@ class SOTATrainer:
                 self.final_density_targets,
                 self.final_density_preds,
                 target_names=self.density_labels,
+                labels=range(len(self.density_labels)),
                 digits=4,
                 zero_division=0,
             )
