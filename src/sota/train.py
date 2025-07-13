@@ -243,7 +243,7 @@ class SOTATrainer:
                     self.birads_recall_scores.append(metrics["birads_recall"])
                     self.density_recall_scores.append(metrics["density_recall"])
                     self.save_metrics_plots()  # Save plots each epoch
-                    self.save_detection_results()  # Save detection results each epoch
+                    self.save_detection_plot()  # Save detection results each epoch
 
                     # print(
                     #    f"Epoch {epoch+1}/{self.epochs} - Validation Loss: {val_loss:.4f}, "
