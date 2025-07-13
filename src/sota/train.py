@@ -98,14 +98,14 @@ class SOTATrainer:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
 
-#        if hasattr(torch, "compile"):
-#            self.model = torch.compile(
-#                self.model,
-#                mode="reduce-overhead",  # Options: "reduce-overhead", "max-autotune"
-#            )
-#            print("Model compiled with torch.compile()")
-#        else:
-#            print("Warning: PyTorch version <2.0 - torch.compile unavailable")
+        #        if hasattr(torch, "compile"):
+        #            self.model = torch.compile(
+        #                self.model,
+        #                mode="reduce-overhead",  # Options: "reduce-overhead", "max-autotune"
+        #            )
+        #            print("Model compiled with torch.compile()")
+        #        else:
+        #            print("Warning: PyTorch version <2.0 - torch.compile unavailable")
 
         self.model.to(self.device)
         self.optimizer = torch.optim.AdamW(
@@ -452,7 +452,7 @@ class SOTATrainer:
                     "scores": cls_scores[valid_indices],
                 }
             )
-            
+
             annotation = annotations["detections"][i].cpu()
 
             all_targets.append(
@@ -461,7 +461,6 @@ class SOTATrainer:
                     "labels": annotation[:, 4].long(),
                 }
             )
-            print(f"Processed image {i + 1}/{batch_size}:")
 
         return all_preds, all_targets
 
