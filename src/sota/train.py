@@ -35,20 +35,20 @@ class TrainerConfig:
     density_loss_weight: float = 0.2
     focal_loss_gamma: float = 2.0
     ##Calculated weights (inversely proportional):
-    birads_class_weights = {
-        "BI-RADS 1": 0.418775,
-        "BI-RADS 2": 0.711345,
-        "BI-RADS 3": 2.072876,
-        "BI-RADS 4": 1.977734,
-        "BI-RADS 5": 4.581900,
-    }
-
-    density_class_weights = {
-        "DENSITY A": 40.322581,
-        "DENSITY B": 1.556663,
-        "DENSITY C": 0.377872,
-        "DENSITY D": 1.456876,
-    }
+    #birads_class_weights = {
+    #    "BI-RADS 1": 0.418775,
+    #    "BI-RADS 2": 0.711345,
+    #    "BI-RADS 3": 2.072876,
+    #    "BI-RADS 4": 1.977734,
+    #    "BI-RADS 5": 4.581900,
+    #}
+#
+    #density_class_weights = {
+    #    "DENSITY A": 40.322581,
+    #    "DENSITY B": 1.556663,
+    #    "DENSITY C": 0.377872,
+    #    "DENSITY D": 1.456876,
+    #}
 
 
 class FocalLoss(nn.Module):
@@ -113,13 +113,13 @@ class SOTATrainer:
         )
 
         # Loss functions
-        self.birads_class_weights = torch.tensor(
-            list(config.birads_class_weights.values()), device=self.device
-        )
-
-        self.density_class_weights = torch.tensor(
-            list(config.density_class_weights.values()), device=self.device
-        )
+#        self.birads_class_weights = torch.tensor(
+#            list(config.birads_class_weights.values()), device=self.device
+#        )
+#
+#        self.density_class_weights = torch.tensor(
+#            list(config.density_class_weights.values()), device=self.device
+#        )
 
         # self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
         # self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
@@ -148,8 +148,8 @@ class SOTATrainer:
             f"Optimizer: {self.optimizer.__class__.__name__}, Scheduler: {self.scheduler.__class__.__name__}"
         )
         print(f"Training on {len(self.train_loader.dataset)} samples")
-        print(f"BIRADS class weights: {self.birads_class_weights}")
-        print(f"DENSITY class weights: {self.density_class_weights}")
+#        print(f"BIRADS class weights: {self.birads_class_weights}")
+#        print(f"DENSITY class weights: {self.density_class_weights}")
 
         # History tracking
         self.train_losses = []
@@ -168,8 +168,8 @@ class SOTATrainer:
         self.final_density_preds = []
         self.final_density_targets = []
         self.final_density_logits = []
-        self.birads_labels = list(config.birads_class_weights.keys())
-        self.density_labels = list(config.density_class_weights.keys())
+        self.birads_labels = ["BI-RADS 3", "BI-RADS 4", "BI-RADS 5"]
+        self.density_labels = ["DENSITY A", "DENSITY B", "DENSITY C", "DENSITY D"]
 
         # Create directories
         os.makedirs(self.model_dir, exist_ok=True)
