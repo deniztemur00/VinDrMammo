@@ -12,7 +12,9 @@ class SOTA(nn.Module):
         self.config = config
 
         # Initialize the detection network
-        self.detection_net = model.resnet18(num_classes=config.n_findings, pretrained=True)
+        self.detection_net = model.resnet50(
+            num_classes=config.n_findings, pretrained=True
+        )
 
         self.local_network = m.LocalNetwork(self.config, self)
         self.local_network.add_layers()
@@ -20,12 +22,14 @@ class SOTA(nn.Module):
         # MIL module
         self.attention_module = m.AttentionModule(self.config, self)
         self.attention_module.add_layers()
-
+        self.feature_dropout = nn.Dropout2d(p=0.2)
         self.density_net = DensityAttention(
             in_channels=self.config.post_processing_dim, out_features=config.n_density
         )
 
         # fusion branch
+        self.dropout = nn.Dropout(p=0.5)
+        self.bn_fusion = nn.BatchNorm1d(768)
         self.fusion_dnn = nn.Linear(
             768,
             config.n_birads,  ## Chaning this according to my dim
@@ -72,14 +76,16 @@ class SOTA(nn.Module):
 
         # backbone features shape: (batch_size,256,h,w)
         # hxw = (64, 64) , (32,32), (16,16), (8,8), (4,4)
-        last_feature_map = features[-1]
-
+        # last_feature_map = features[-1]
+        last_feature_map = self.feature_dropout(features[-1])
         density_logits = self.density_net(last_feature_map)
         g1, _ = torch.max(last_feature_map, dim=2)
         global_vec, _ = torch.max(g1, dim=2)
 
         concat_vec = torch.cat([global_vec, z], dim=1)
+        concat_vec = self.dropout(concat_vec)
         # print(f"concat_vec shape: {concat_vec.shape}")
+        concat_vec = self.bn_fusion(concat_vec)
         self.y_fusion_birads = self.fusion_dnn(concat_vec)
 
         if self.training:
@@ -93,7 +99,7 @@ class SOTA(nn.Module):
         else:
             inference_results = {
                 "detections": detections,
-                "birads_logits": self.y_fusion_birads,
-                "density_logits": density_logits,
+                "birads_logits": nn.functional.softmax(self.y_fusion_birads, dim=1),
+                "density_logits": nn.functional.softmax(density_logits, dim=1),
             }
             return inference_results
