@@ -27,28 +27,13 @@ from scipy.special import softmax
 class TrainerConfig:
     epochs: int = 10
     lr: float = 5e-4
-    weight_decay: float = 0.07
+    weight_decay: float = 0.007
     model_dir: str = "models/"
     plot_dir: str = "plots/"
     name: str = "SOTA_v1.0"
-    birads_loss_weight: float = 0.8
-    density_loss_weight: float = 0.2
+    birads_loss_weight: float = 0.7
+    density_loss_weight: float = 0.3
     focal_loss_gamma: float = 2.0
-    ##Calculated weights (inversely proportional):
-    #birads_class_weights = {
-    #    "BI-RADS 1": 0.418775,
-    #    "BI-RADS 2": 0.711345,
-    #    "BI-RADS 3": 2.072876,
-    #    "BI-RADS 4": 1.977734,
-    #    "BI-RADS 5": 4.581900,
-    #}
-#
-    #density_class_weights = {
-    #    "DENSITY A": 40.322581,
-    #    "DENSITY B": 1.556663,
-    #    "DENSITY C": 0.377872,
-    #    "DENSITY D": 1.456876,
-    #}
 
 
 class FocalLoss(nn.Module):
@@ -113,20 +98,23 @@ class SOTATrainer:
         )
 
         # Loss functions
-#        self.birads_class_weights = torch.tensor(
-#            list(config.birads_class_weights.values()), device=self.device
-#        )
-#
-#        self.density_class_weights = torch.tensor(
-#            list(config.density_class_weights.values()), device=self.device
-#        )
+        self.birads_class_weights = torch.tensor([0.9424, 0.9261, 1.1641]).to(
+            self.device
+        )
+        self.density_class_weights = torch.tensor([29.6852, 1.8299, 0.3143, 4.1963]).to(
+            self.device
+        )
 
         # self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
         # self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
 
         # removed weighting because dataset is resampled to balance classes
-        self.birads_loss_fn = nn.CrossEntropyLoss()
-        self.density_loss_fn = nn.CrossEntropyLoss()
+        self.birads_loss_fn = nn.CrossEntropyLoss(
+            label_smoothing=0.1,  # weight=self.birads_class_weights
+        )
+        self.density_loss_fn = nn.CrossEntropyLoss(
+            label_smoothing=0.1,  # weight=self.density_class_weights
+        )
 
         # Scheduler
         self.scheduler = CosineAnnealingLR(
@@ -148,8 +136,8 @@ class SOTATrainer:
             f"Optimizer: {self.optimizer.__class__.__name__}, Scheduler: {self.scheduler.__class__.__name__}"
         )
         print(f"Training on {len(self.train_loader.dataset)} samples")
-#        print(f"BIRADS class weights: {self.birads_class_weights}")
-#        print(f"DENSITY class weights: {self.density_class_weights}")
+        #        print(f"BIRADS class weights: {self.birads_class_weights}")
+        #        print(f"DENSITY class weights: {self.density_class_weights}")
 
         # History tracking
         self.train_losses = []
@@ -205,7 +193,7 @@ class SOTATrainer:
                     total_loss = loss + finding_loss + reg_loss
                     total_loss.backward()
                     # Optional: Gradient clipping
-                    # nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                     self.optimizer.step()
 
@@ -242,8 +230,8 @@ class SOTATrainer:
                     self.density_precision_scores.append(metrics["density_precision"])
                     self.birads_recall_scores.append(metrics["birads_recall"])
                     self.density_recall_scores.append(metrics["density_recall"])
-                    self.save_metrics_plots()  # Save plots each epoch
-                    self.save_detection_plot()  # Save detection results each epoch
+                    # self.save_metrics_plots()  # Save plots each epoch
+                    # self.save_detection_plot()  # Save detection results each epoch
 
                     # print(
                     #    f"Epoch {epoch+1}/{self.epochs} - Validation Loss: {val_loss:.4f}, "
@@ -258,8 +246,8 @@ class SOTATrainer:
                         self.save(
                             os.path.join(self.model_dir, f"{self.name}_best_model.pth")
                         )
-                        self.save_final_metrics_report()  # save only best metrics report
-
+                        self.save_metrics_plots()
+                        self.save_detection_plot()
                 self.save(os.path.join(self.model_dir, f"{self.name}_last_epoch.pth"))
             self.save_loss_plot()
 
@@ -526,11 +514,6 @@ class SOTATrainer:
         plt.savefig(plot_path)
         # print(f"Loss plots saved to {plot_path}")
         plt.close()
-
-    def save_final_metrics_report(self):
-        if not self.val_loader or not self.final_birads_targets:
-            print("Skipping final metrics report: No validation results available.")
-            return
 
         # Helper function to plot ROC curves
         def plot_roc_curve(y_true, y_score, labels, task_name, plot_dir, model_name):
