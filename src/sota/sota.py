@@ -23,6 +23,8 @@ class SOTA(nn.Module):
         self.attention_module = m.AttentionModule(self.config, self)
         self.attention_module.add_layers()
         self.feature_dropout = nn.Dropout2d(p=0.2)
+
+        # Density Classification branch
         self.density_net = DensityAttention(
             in_channels=self.config.post_processing_dim, out_features=config.n_density
         )
