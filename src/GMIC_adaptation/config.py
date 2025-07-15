@@ -11,7 +11,7 @@ class GlobalConfig:
 
     # General
     n_birads: int = 3
-    n_density: int = 4
+    n_density: int = 3
     n_findings: int = 3
     input_channels: int = 1
 
