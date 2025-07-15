@@ -26,7 +26,7 @@ class SOTADataset(Dataset):
         self,
         df: pd.DataFrame,
         image_dir: str,  # Directory containing the PNG images
-        img_size: Tuple[int, int] = (1024, 512), # mean size of the images
+        img_size: Tuple[int, int] = (512, 256),  # 1024x512
         augment_duplicated: bool = True,
     ) -> None:
         self.df = df.reset_index(drop=True)
