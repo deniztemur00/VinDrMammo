@@ -26,7 +26,8 @@ from scipy.special import softmax
 @dataclass
 class TrainerConfig:
     epochs: int = 10
-    lr: float = 5e-4
+    lr: float = 1e-3
+    lr_detection_head: float = 3e-4
     weight_decay: float = 0.007
     model_dir: str = "models/"
     plot_dir: str = "plots/"
@@ -93,15 +94,32 @@ class SOTATrainer:
         #            print("Warning: PyTorch version <2.0 - torch.compile unavailable")
 
         self.model.to(self.device)
+        detection_net_params = self.model.detection_net.parameters()
+        density_net_params = self.model.density_net.parameters()
+
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=config.lr, weight_decay=config.weight_decay
+            [
+                {
+                    "params": density_net_params,
+                    "lr": config.lr,
+                },
+                {
+                    "params": detection_net_params,
+                    "lr": config.lr_detection_head,
+                },
+            ],
+            weight_decay=config.weight_decay,
         )
 
         # Loss functions
-        self.birads_class_weights = torch.tensor([0.9424, 0.9261, 1.1641]).to(
+        self.birads_class_weights = torch.tensor([0.9453, 0.9295, 1.1543])
+
+        self.density_class_weights = torch.tensor([2.4193, 0.4156, 5.5480])
+
+        self.density_class_weights = self.density_class_weights.to(torch.float32).to(
             self.device
         )
-        self.density_class_weights = torch.tensor([29.6852, 1.8299, 0.3143, 4.1963]).to(
+        self.birads_class_weights = self.birads_class_weights.to(torch.float32).to(
             self.device
         )
 
@@ -157,7 +175,7 @@ class SOTATrainer:
         self.final_density_targets = []
         self.final_density_logits = []
         self.birads_labels = ["BI-RADS 3", "BI-RADS 4", "BI-RADS 5"]
-        self.density_labels = ["DENSITY A", "DENSITY B", "DENSITY C", "DENSITY D"]
+        self.density_labels = ["DENSITY B", "DENSITY C", "DENSITY D"]
 
         # Create directories
         os.makedirs(self.model_dir, exist_ok=True)
@@ -390,8 +408,8 @@ class SOTATrainer:
         birads_logits = outputs["birads_logits"]
         density_logits = outputs["density_logits"]
 
-        birads_target = targets["birads"]
-        density_target = targets["density"]
+        birads_target = targets["birads"].to(torch.int64)
+        density_target = targets["density"].to(torch.int64)
 
         birads_loss = self.birads_loss_fn(birads_logits, birads_target)
         density_loss = self.density_loss_fn(density_logits, density_target)
