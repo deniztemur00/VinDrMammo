@@ -12,10 +12,10 @@ class SOTA(nn.Module):
         self.config = config
 
         # Initialize the detection network
-        self.detection_net = model.resnet50(
+        self.detection_net = model.resnet18(
             num_classes=config.n_findings, pretrained=True
         )
-
+        self.freeze_detection_backbone()
         self.local_network = m.LocalNetwork(self.config, self)
         self.local_network.add_layers()
 
@@ -30,13 +30,22 @@ class SOTA(nn.Module):
         )
 
         # fusion branch
-        self.dropout = nn.Dropout(p=0.5)
+        self.dropout = nn.Dropout(p=0.2)
         self.bn_fusion = nn.BatchNorm1d(768)
         self.fusion_dnn = nn.Linear(
             768,
             config.n_birads,  ## Chaning this according to my dim
             # change 768 to the correct dimension later
         )
+
+    def freeze_detection_backbone(self):
+        for name, parameter in self.detection_net.named_parameters():
+            if not (
+                "fpn" in name
+                or "regressionModel" in name
+                or "classificationModel" in name
+            ):
+                parameter.requires_grad = False
 
     def forward(self, images, targets=None):
 
@@ -48,51 +57,60 @@ class SOTA(nn.Module):
 
         # Step 2: Process detections (bounding boxes)
         all_patches = []
-        for i, detection in enumerate(detections):
-            class_scores, class_indices, bboxes = detection
+        patches_per_image = []  # Keep track of how many patches belong to each image
+        for i, detection_result in enumerate(detections):
+            bboxes = detection_result[2]
+            num_patches = 0
             for bbox in bboxes:
                 x1, y1, x2, y2 = [int(coord) for coord in bbox]
-                patch = images[i, :, y1:y2, x1:x2]  # Crop region
-                patch = torch.nn.functional.interpolate(
-                    patch.unsqueeze(0), size=self.config.crop_shape, mode="bilinear"
-                ).squeeze(0)
-                all_patches.append(patch)
+                if y2 > y1 and x2 > x1:  # Ensure patch has a non-zero area
+                    patch = images[i, :, y1:y2, x1:x2]
+                    patch = torch.nn.functional.interpolate(
+                        patch.unsqueeze(0), size=self.config.crop_shape, mode="bilinear"
+                    ).squeeze(0)
+                    all_patches.append(patch)
+                    num_patches += 1
+            patches_per_image.append(num_patches)
 
         if not all_patches:
             print("No bounding boxes found")
             return None
 
-        patches_tensor = torch.stack(all_patches)  # Combine all patches into a batch
+        else:
+            # last_feature_map = features[-1]
+            # feature map sizes :
+            last_feature_map = self.feature_dropout(features[-1])
+            density_logits = self.density_net(last_feature_map)
+            patches_tensor = torch.stack(
+                all_patches
+            )  # Combine all patches into a batch
 
-        # Step 3: Local network: Compute hidden representations for patches
-        h_crops = self.local_network.forward(patches_tensor)
-        h_crops = h_crops.view(
-            len(detections), -1, h_crops.size(-1)
-        )  # Reshape for MIL module
-        # print(f"h_crops shape: {h_crops.shape}")
-        # Step 4: MIL module: Compute attention-weighted features
-        z, self.patch_attns, self.y_local = self.attention_module.forward(h_crops)
-        # print(
-        #    f"z shape: {z.shape}, patch_attns shape: {self.patch_attns.shape}, y_local shape: {self.y_local.shape}"
-        # )
+            # Step 3: Local network: Compute hidden representations for patches
+            h_crops = self.local_network.forward(patches_tensor)
+            h_crops_grouped = torch.split(h_crops, patches_per_image, dim=0)
 
-        # backbone features shape: (batch_size,256,h,w)
-        # hxw = (64, 64) , (32,32), (16,16), (8,8), (4,4)
-        # last_feature_map = features[-1]
-        last_feature_map = self.feature_dropout(features[-1])
-        density_logits = self.density_net(last_feature_map)
-        g1, _ = torch.max(last_feature_map, dim=2)
-        global_vec, _ = torch.max(g1, dim=2)
+            # Pad the sequences so they all have the same length (the max number of patches in the batch).
+            h_crops_padded = nn.utils.rnn.pad_sequence(
+                h_crops_grouped, batch_first=True
+            )
 
-        concat_vec = torch.cat([global_vec, z], dim=1)
-        concat_vec = self.dropout(concat_vec)
-        # print(f"concat_vec shape: {concat_vec.shape}")
-        concat_vec = self.bn_fusion(concat_vec)
-        self.y_fusion_birads = self.fusion_dnn(concat_vec)
+            # Now the MIL module can process the padded batch.
+            z, self.patch_attns, self.y_local = self.attention_module.forward(
+                h_crops_padded
+            )
+
+            # Fuse global and local features for final BI-RADS prediction.
+            g1, _ = torch.max(last_feature_map, dim=3)
+            global_vec, _ = torch.max(g1, dim=2)
+
+            concat_vec = torch.cat([global_vec, z], dim=1)
+            concat_vec = self.dropout(concat_vec)
+            concat_vec = self.bn_fusion(concat_vec)
+            birads_logits = self.fusion_dnn(concat_vec)
 
         if self.training:
             loss_dict = {
-                "birads_logits": self.y_fusion_birads,
+                "birads_logits": birads_logits,
                 "density_logits": density_logits,
                 "finding_loss": detection_loss[0],
                 "reg_loss": detection_loss[1],
@@ -101,7 +119,7 @@ class SOTA(nn.Module):
         else:
             inference_results = {
                 "detections": detections,
-                "birads_logits": nn.functional.softmax(self.y_fusion_birads, dim=1),
+                "birads_logits": nn.functional.softmax(birads_logits, dim=1),
                 "density_logits": nn.functional.softmax(density_logits, dim=1),
             }
             return inference_results
