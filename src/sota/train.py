@@ -208,7 +208,7 @@ class SOTATrainer:
                     finding_loss = outputs["finding_loss"]
                     reg_loss = outputs["reg_loss"]
 
-                    total_loss = loss + finding_loss + reg_loss
+                    total_loss = loss * 0.5 + finding_loss + reg_loss
                     total_loss.backward()
                     # Optional: Gradient clipping
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
