@@ -7,6 +7,7 @@ data_output_cropped/
 utils/exploration.ipynb
 utils/split.ipynb
 metadata/
+src/**.ipynb
 VinDrMammoNotebooks/
 deprecated/
 src/sota/retinanet/
