@@ -3,148 +3,147 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
 import torch
-from typing import Dict, Tuple
+import os
+from torchvision import transforms
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import cv2  # Import cv2 for border_mode constant
 
 
-class ClassificationDataset(Dataset):
-    """
-    Dataset for classifying breast BI-RADS and density using PNG images.
-    Applies augmentations only to rows marked as duplicated.
-    """
-
+class MammoDataset(Dataset):
     def __init__(
         self,
-        df: pd.DataFrame,
-        image_dir: str,  # Directory containing the PNG images
-        img_size: Tuple[int, int] = (224, 224),
-        augment_duplicated: bool = True,
-    ) -> None:
-        self.df = df.reset_index(drop=True)
-        self.image_dir = image_dir
-        self.img_size = img_size
-        self.augment_duplicated = augment_duplicated
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.mean = [0.485, 0.456, 0.406]
-        self.std = [0.229, 0.224, 0.225]
-
-        # Create label mappings
-        self.birads_map = {
+        df,
+        preprocessing_cfg=None,
+        split="train",
+        transform=None,
+    ):
+        self.df = df
+        self.img_size = (224, 224)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.dataset_path = (
+            "/home/deniztemur/Dataset/vindrmammo_findings_dataset_cropped/"
+        )
+        self.birads_map = self.birads_map = {
             label: idx for idx, label in enumerate(sorted(df["breast_birads"].unique()))
         }
-        self.density_map = {
-            label: idx
-            for idx, label in enumerate(sorted(df["breast_density"].unique()))
-        }
-        self.num_birads_classes = len(self.birads_map)
-        self.num_density_classes = len(self.density_map)
+        self.cfg = preprocessing_cfg or self._get_default_preprocessing_cfg()
+        self.transform = transform or self._get_default_transform()
+        self.split = split
+        self.augment = (
+            self._get_train_augmentation()
+            if split == "train"
+            else self._get_test_augmentation()
+        )
 
-        # Basic transforms (applied to all images)
-        self.base_transform = A.Compose(
+    def _get_test_augmentation(self):
+        return A.Compose(
             [
-                A.Resize(height=img_size[0], width=img_size[1]),
-                A.Normalize(mean=self.mean, std=self.std, max_pixel_value=255.0),
+                A.Resize(self.img_size[0], self.img_size[1]),
+                A.Normalize(),
                 ToTensorV2(),
             ]
         )
 
-        # Augmentations using Albumentations
-        self.augment_transform = A.Compose(
+    def _get_train_augmentation(self):
+        return A.Compose(
             [
-                A.Resize(height=img_size[0], width=img_size[1]),
-                # --- Augmentations Start ---
-                A.HorizontalFlip(p=0.5),  # Adjusted p=0.5
+                # Spatial augmentations
+                A.HorizontalFlip(p=0.5),
                 A.ShiftScaleRotate(
                     shift_limit=0.05,
-                    scale_limit=0.1,
-                    rotate_limit=10,
-                    p=0.7,
-                    border_mode=cv2.BORDER_CONSTANT,
+                    scale_limit=0.05,
+                    rotate_limit=0.05,
+                    p=0.4,
+                    border_mode=0,
                 ),
-                # --- Augmentations End ---
-                A.Normalize(
-                    mean=self.mean, std=self.std, max_pixel_value=255
-                ),  # Adjust mean/std if single channel
+                # Intensity augmentations
+                A.RandomBrightnessContrast(
+                    brightness_limit=0.1, contrast_limit=0.1, p=0.3
+                ),
+                # A.GaussNoise(var_limit=(5.0, 20.0), p=0.3),
+                A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.2),
+                # Robustness
+                A.GridDistortion(p=0.1),
+                # Resize and ToTensor
+                A.Resize(self.img_size[0], self.img_size[1]),
+                A.Normalize(),
                 ToTensorV2(),
-            ],
-            seed=42,
+            ]
         )
 
-    def unnormalize(self, tensor: torch.Tensor) -> np.ndarray:
-        """
-        Unnormalize the tensor to convert it back to an image. For plotting purposes.
-        Args:
-            tensor (torch.Tensor): The input tensor to unnormalize.
-        Returns:
-            np.ndarray: The unnormalized image as a NumPy array.
-        """
-        # Convert tensor to numpy array and move to CPU
-        tensor = tensor.clone().detach().cpu()
-        mean = torch.tensor(self.mean).view(-1, 1, 1)
-        std = torch.tensor(self.std).view(-1, 1, 1)
-
-        tensor.mul_(std).add_(mean)
-        tensor = torch.clamp(tensor, 0, 1)
-        img_np = tensor.cpu().numpy().transpose(1, 2, 0)
-        return img_np
-        # Unnormalize the image
-
-    def __len__(self) -> int:
-        return len(self.df)
-
-    def _process_image(self, row: pd.Series) -> torch.Tensor:
-        img_path = f"{self.image_dir}/{row.study_id}/{row.image_id}.png"
-        # Load image as NumPy array (H, W, C)
-        image = np.array(Image.open(img_path).convert("RGB")).astype(np.float32)
-
-        apply_augmentation = (
-            row.get("split") == "training"
-            and self.augment_duplicated
-            and row.get("is_duplicated", False)
-        )
-
-        # if not apply_augmentation:
-        transformed = self.base_transform(image=image)["image"]
-        # else:
-        #    transformed = self.augment_transform(image=image)["image"]
-        # print("Augmentation applied")  # Optional debug print
-
-        image_tensor = transformed.to(self.device)
-
-        # print(
-        #    f"Image shape: {image_tensor.shape} device {image_tensor.device}"
-        # )  # Optional debug print
-        # print(image_tensor.shape) # Optional debug print
-
-        # Move to device in the training loop or collate_fn, not here
-        # image_tensor = image_tensor.to(self.device)
-
-        return image_tensor
-
-    def _preprocess_targets(self, row: pd.Series) -> Dict[str, torch.Tensor]:
-        # Get labels
-        birads_label = self.birads_map[row.breast_birads]
-        density_label = self.density_map[row.breast_density]
-
-        targets = {
-            "birads": torch.tensor(birads_label, dtype=torch.uint8).to(self.device),
-            "density": torch.tensor(density_label, dtype=torch.uint8).to(self.device),
+    def _get_default_preprocessing_cfg(self):
+        return {
+            "denoise": "gaussian",  # Options: 'gaussian', 'median', None
+            "contrast": "clahe",  # Options: 'clahe', 'hist_eq', None
+            "sharpen": True,  # Boolean
+            "normalize": "minmax",  # Options: 'zscore', 'minmax', None
         }
 
-        return targets
+    def _get_default_transform(self):
+        return transforms.Compose(
+            [
+                transforms.Resize((512, 512)),
+                transforms.ToTensor(),
+            ]
+        )
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def __len__(self):
+        return len(self.df)
+
+    def apply_preprocessing(self, image):
+        # Convert PIL to numpy
+        img = np.array(image)
+
+        # Denoising
+        if self.cfg.get("denoise") == "gaussian":
+            img = cv2.GaussianBlur(img, (5, 5), 0)
+        elif self.cfg.get("denoise") == "median":
+            img = cv2.medianBlur(img, 5)
+
+        # Contrast Enhancement
+        if self.cfg.get("contrast") == "clahe":
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            img = clahe.apply(img)
+        elif self.cfg.get("contrast") == "hist_eq":
+            img = cv2.equalizeHist(img)
+
+        # Sharpening
+        if self.cfg.get("sharpen", False):
+            kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+            img = cv2.filter2D(img, -1, kernel)
+
+        # Normalization
+        if self.cfg.get("normalize") == "zscore":
+            img = (img - np.mean(img)) / (np.std(img) + 1e-5)
+        elif self.cfg.get("normalize") == "minmax":
+            img = (img - np.min(img)) / (np.max(img) - np.min(img) + 1e-5)
+            img = (img * 255).astype(np.uint8)
+
+        return Image.fromarray(img)
+
+    def __getitem__(self, idx):
         row = self.df.iloc[idx]
+        img_path = os.path.join(
+            self.dataset_path, row["study_id"], row["image_id"] + ".png"
+        )
+        label = self.birads_map.get(row["breast_birads"], -1)
 
-        image_tensor = self._process_image(row)
+        image = Image.open(img_path).convert("L")  # Mammograms are grayscale
 
-        target_tensors = self._preprocess_targets(row)
+        image = self.apply_preprocessing(image)
 
-        # print(row)
+        # image = self.transform(image)
+        image = np.array(image)
 
-        return image_tensor, target_tensors
+        image = self.augment(image=image)["image"]
+
+        label = torch.tensor(label, dtype=torch.long)
+
+        # image = image.to(self.device)
+        # label = label.to(self.device)
+
+        return image, label
 
 
 def collate_fn(batch):
