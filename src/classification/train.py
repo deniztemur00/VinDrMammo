@@ -1,9 +1,9 @@
 import os
 import torch
-from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.nn.functional as F
 from tqdm import tqdm
+from hybrid import FocalLoss
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
@@ -25,52 +25,13 @@ from scipy.special import softmax
 @dataclass
 class TrainerConfig:
     epochs: int = 10
-    lr: float = 5e-4
+    lr: float = 2e-4
     weight_decay: float = 0.07
     model_dir: str = "models/"
     plot_dir: str = "plots/"
     name: str = None
-    birads_loss_weight: float = 0.8
-    density_loss_weight: float = 0.2
     focal_loss_gamma: float = 2.0
     ##Calculated weights (inversely proportional):
-    birads_class_weights = {
-        "BI-RADS 1": 0.418775,
-        "BI-RADS 2": 0.711345,
-        "BI-RADS 3": 2.072876,
-        "BI-RADS 4": 1.977734,
-        "BI-RADS 5": 4.581900,
-    }
-
-    density_class_weights = {
-        "DENSITY A": 40.322581,
-        "DENSITY B": 1.556663,
-        "DENSITY C": 0.377872,
-        "DENSITY D": 1.456876,
-    }
-
-
-class FocalLoss(nn.Module):
-    def __init__(self, gamma=2.0, reduction="mean"):
-        super(FocalLoss, self).__init__()
-        self.gamma = gamma
-        self.reduction = reduction
-
-    def forward(self, inputs, targets):
-        # Calculate CE loss without reduction to get per-example losses
-        ce_loss = F.cross_entropy(inputs, targets, reduction="none")
-        # Calculate the probability of the correct class p_t = exp(-ce_loss)
-        pt = torch.exp(-ce_loss)
-        # Calculate the focal loss term: (1 - pt)^gamma * ce_loss
-        focal_term = (1 - pt) ** self.gamma * ce_loss
-
-        # Apply the specified reduction
-        if self.reduction == "mean":
-            return focal_term.mean()
-        elif self.reduction == "sum":
-            return focal_term.sum()
-        else:  # 'none'
-            return focal_term
 
 
 class ClassificationTrainer:
@@ -91,40 +52,29 @@ class ClassificationTrainer:
         self.model_dir = config.model_dir
         self.plot_dir = config.plot_dir
         self.name = config.name if config.name else "classification_model"
-        self.birads_loss_weight = config.birads_loss_weight
-        self.density_loss_weight = config.density_loss_weight
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
 
-        if hasattr(torch, "compile"):
-            self.model = torch.compile(
-                self.model,
-                mode="reduce-overhead",  # Options: "reduce-overhead", "max-autotune"
-            )
-            print("Model compiled with torch.compile()")
-        else:
-            print("Warning: PyTorch version <2.0 - torch.compile unavailable")
+        # if hasattr(torch, "compile"):
+        #    self.model = torch.compile(
+        #        self.model,
+        #        mode="reduce-overhead",  # Options: "reduce-overhead", "max-autotune"
+        #    )
+        #    print("Model compiled with torch.compile()")
+        # else:
+        #    print("Warning: PyTorch version <2.0 - torch.compile unavailable")
 
         self.model.to(self.device)
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=config.lr, weight_decay=config.weight_decay
         )
 
-        # Loss functions
-        self.birads_class_weights = torch.tensor(
-            list(config.birads_class_weights.values()), device=self.device
-        )
-
-        self.density_class_weights = torch.tensor(
-            list(config.density_class_weights.values()), device=self.device
-        )
-
-        # self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
+        self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
         # self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
 
-        self.birads_loss_fn = nn.CrossEntropyLoss()
-        self.density_loss_fn = nn.CrossEntropyLoss(weight=self.density_class_weights)
+        # self.birads_loss_fn = nn.CrossEntropyLoss()
+        # self.density_loss_fn = nn.CrossEntropyLoss()
 
         # Scheduler
         self.scheduler = CosineAnnealingLR(
@@ -142,27 +92,34 @@ class ClassificationTrainer:
             f"Optimizer: {self.optimizer.__class__.__name__}, Scheduler: {self.scheduler.__class__.__name__}"
         )
         print(f"Training on {len(self.train_loader.dataset)} samples")
-        print(f"BIRADS class weights: {self.birads_class_weights}")
-        print(f"DENSITY class weights: {self.density_class_weights}")
+        # print(f"BIRADS class weights: {self.birads_class_weights}")
+        # print(f"DENSITY class weights: {self.density_class_weights}")
 
         # History tracking
         self.train_losses = []
         self.val_losses = []
         self.birads_recall_scores = []
-        self.density_recall_scores = []
+        # self.density_recall_scores = []
         self.birads_precision_scores = []
-        self.density_precision_scores = []
+        # self.density_precision_scores = []
         self.current_epoch = 0
 
         # Store final validation results
         self.final_birads_preds = []
         self.final_birads_targets = []
         self.final_birads_logits = []
-        self.final_density_preds = []
-        self.final_density_targets = []
-        self.final_density_logits = []
-        self.birads_labels = list(config.birads_class_weights.keys())
-        self.density_labels = list(config.density_class_weights.keys())
+        # self.final_density_preds = []
+        # self.final_density_targets = []
+        # self.final_density_logits = []
+        self.birads_labels = [
+            "BI-RADS 1",
+            "BI-RADS 2",
+            "BI-RADS 3",
+            "BI-RADS 4",
+            "BI-RADS 5",
+        ]
+        print(f"BI-RADS labels: {self.birads_labels}")
+        # self.density_labels = list(config.density_class_weights.keys())
 
         # Create directories
         os.makedirs(self.model_dir, exist_ok=True)
@@ -171,22 +128,23 @@ class ClassificationTrainer:
     def _calculate_loss(self, outputs, targets):
         """Calculates the combined weighted loss."""
         birads_logits = outputs["birads_logits"]
-        density_logits = outputs["density_logits"]
+        # density_logits = outputs["density_logits"]
 
         birads_target = targets["birads"]
-        density_target = targets["density"]
+        # density_target = targets["density"]
 
         birads_loss = self.birads_loss_fn(birads_logits, birads_target)
-        density_loss = self.density_loss_fn(density_logits, density_target)
+        # density_loss = self.density_loss_fn(density_logits, density_target)
 
-        total_loss = (
-            self.birads_loss_weight * birads_loss
-            + self.density_loss_weight * density_loss
-        )
+        total_loss = birads_loss
+        # total_loss = (
+        #    self.birads_loss_weight * birads_loss
+        #    + self.density_loss_weight * density_loss
+        # )
 
         return total_loss, {
             "birads_loss": birads_loss,
-            "density_loss": density_loss,
+            # "density_loss": density_loss,
             "total_loss": total_loss,
         }
 
@@ -199,7 +157,7 @@ class ClassificationTrainer:
                 self.model.train()
                 epoch_loss = 0.0
                 epoch_birads_loss = 0.0  # Accumulate birads loss
-                epoch_density_loss = 0.0  # Accumulate density loss
+                # epoch_density_loss = 0.0  # Accumulate density loss
                 batch_count = 0
                 train_pbar = tqdm(
                     self.train_loader,
@@ -208,10 +166,13 @@ class ClassificationTrainer:
                 )
 
                 for images, targets in train_pbar:
+                    images = images.to(self.device)
+                    targets = targets.to(self.device)
 
                     outputs = self.model(images)
-
-                    loss, loss_dict = self._calculate_loss(outputs, targets)
+                    
+                    loss = self.birads_loss_fn(outputs, targets)
+                    #loss, loss_dict = self._calculate_loss(outputs, targets)
 
                     # Backward pass and optimization
                     self.optimizer.zero_grad()
@@ -223,8 +184,8 @@ class ClassificationTrainer:
                     self.optimizer.step()
 
                     epoch_loss += loss.item()
-                    epoch_birads_loss += loss_dict["birads_loss"].item()
-                    epoch_density_loss += loss_dict["density_loss"].item()
+                    epoch_birads_loss += loss.item()
+                    # epoch_density_loss += loss_dict["density_loss"].item()
                     batch_count += 1
 
                     # Update progress bar postfix
@@ -232,8 +193,8 @@ class ClassificationTrainer:
                     train_pbar.set_postfix(
                         {
                             "avg_birads_loss": f"{epoch_birads_loss / batch_count:.4f}",
-                            "avg_density_loss": f"{epoch_density_loss / batch_count:.4f}",
-                            "avg_total_loss": f"{epoch_loss / batch_count:.4f}",
+                            # "avg_density_loss": f"{epoch_density_loss / batch_count:.4f}",
+                            # "avg_total_loss": f"{epoch_loss / batch_count:.4f}",
                             "LR": f"{lr:.6f}",
                         }
                     )
@@ -250,9 +211,9 @@ class ClassificationTrainer:
                     val_loss, metrics = self.validate()
                     self.val_losses.append(val_loss)
                     self.birads_precision_scores.append(metrics["birads_precision"])
-                    self.density_precision_scores.append(metrics["density_precision"])
+                    # self.density_precision_scores.append(metrics["density_precision"])
                     self.birads_recall_scores.append(metrics["birads_recall"])
-                    self.density_recall_scores.append(metrics["density_recall"])
+                    # self.density_recall_scores.append(metrics["density_recall"])
                     self.save_metrics_plots()  # Save plots each epoch
 
                     # print(
@@ -293,16 +254,16 @@ class ClassificationTrainer:
 
         total_val_loss = 0.0
         val_birads_loss = 0.0
-        val_density_loss = 0.0
+        # val_density_loss = 0.0
         val_batch_count = 0
 
         all_birads_preds = []
         all_birads_targets = []
         all_birads_logits = []
 
-        all_density_preds = []
-        all_density_targets = []
-        all_density_logits = []
+        # all_density_preds = []
+        # all_density_targets = []
+        # all_density_logits = []
 
         val_pbar = tqdm(
             self.val_loader,
@@ -311,44 +272,48 @@ class ClassificationTrainer:
         )
 
         for images, targets in val_pbar:
+            images = images.to(self.device)
+            targets = targets.to(self.device)
 
             outputs = self.model(images)
 
-            loss, loss_dict = self._calculate_loss(outputs, targets)
+            #loss, loss_dict = self._calculate_loss(outputs, targets)
+            loss = self.birads_loss_fn(outputs, targets)
             total_val_loss += (
                 loss.item()
             )  # Keep accumulating total loss for final epoch average
-            val_birads_loss += loss_dict["birads_loss"].item()
-            val_density_loss += loss_dict["density_loss"].item()
+            val_birads_loss += loss.item()
+            #val_birads_loss += loss_dict["birads_loss"].item()
+            # val_density_loss += loss_dict["density_loss"].item()
             val_batch_count += 1
 
             # Get predictions
-            birads_preds = torch.argmax(outputs["birads_logits"], dim=1)
-            density_preds = torch.argmax(outputs["density_logits"], dim=1)
+            birads_preds = torch.argmax(outputs, dim=1)
+            # density_preds = torch.argmax(outputs["density_logits"], dim=1)
 
             # Store predictions,targets,and logits for metric calculation
-            all_birads_logits.append(outputs["birads_logits"].cpu().numpy())
-            all_density_logits.append(outputs["density_logits"].cpu().numpy())
+            all_birads_logits.append(outputs.cpu().numpy())
+            # all_density_logits.append(outputs["density_logits"].cpu().numpy())
             all_birads_preds.extend(birads_preds.cpu().numpy())
-            all_birads_targets.extend(targets["birads"].cpu().numpy())
-            all_density_preds.extend(density_preds.cpu().numpy())
-            all_density_targets.extend(targets["density"].cpu().numpy())
+            all_birads_targets.extend(targets.cpu().numpy())
+            # all_density_preds.extend(density_preds.cpu().numpy())
+            # all_density_targets.extend(targets["density"].cpu().numpy())
 
             birads_f1 = f1_score(
                 all_birads_targets, all_birads_preds, average="macro", zero_division=0
             )
-            density_f1 = f1_score(
-                all_density_targets, all_density_preds, average="macro", zero_division=0
-            )
+            ##density_f1 = f1_score(
+            ##    all_density_targets, all_density_preds, average="macro", zero_division=0
+            ##)
 
             # Update progress bar postfix (optional)
             val_pbar.set_postfix(
                 {
                     "birads_f1": f"{birads_f1:.4f}",  # F1 calculated on accumulated preds
-                    "density_f1": f"{density_f1:.4f}",  # F1 calculated on accumulated preds
+                    # "density_f1": f"{density_f1:.4f}",  # F1 calculated on accumulated preds
                     "avg_birads_loss": f"{val_birads_loss / val_batch_count:.4f}",
-                    "avg_density_loss": f"{val_density_loss/ val_batch_count:.4f}",
-                    "avg_total_loss": f"{total_val_loss / val_batch_count:.4f}",  # Use total_val_loss here as it's already accumulated
+                    # "avg_density_loss": f"{val_density_loss/ val_batch_count:.4f}",
+                    # "avg_total_loss": f"{total_val_loss / val_batch_count:.4f}",  # Use total_val_loss here as it's already accumulated
                 }
             )
 
@@ -358,39 +323,39 @@ class ClassificationTrainer:
         birads_precision = precision_score(
             all_birads_targets, all_birads_preds, average="macro", zero_division=0
         )
-        density_precision = precision_score(
-            all_density_targets, all_density_preds, average="macro", zero_division=0
-        )
+        # density_precision = precision_score(
+        #    all_density_targets, all_density_preds, average="macro", zero_division=0
+        # )
         birads_recall = recall_score(
             all_birads_targets, all_birads_preds, average="macro", zero_division=0
         )
-        density_recall = recall_score(
-            all_density_targets, all_density_preds, average="macro", zero_division=0
-        )
+        # density_recall = recall_score(
+        #    all_density_targets, all_density_preds, average="macro", zero_division=0
+        # )
 
         birads_f1 = f1_score(
             all_birads_targets, all_birads_preds, average="macro", zero_division=0
         )
 
-        density_f1 = f1_score(
-            all_density_targets, all_density_preds, average="macro", zero_division=0
-        )
+        # density_f1 = f1_score(
+        #    all_density_targets, all_density_preds, average="macro", zero_division=0
+        # )
 
         # Save final predictions and targets for later analysis
         self.final_birads_preds = all_birads_preds
         self.final_birads_targets = all_birads_targets
         self.final_birads_logits = all_birads_logits
-        self.final_density_preds = all_density_preds
-        self.final_density_targets = all_density_targets
-        self.final_density_logits = all_density_logits
+        # self.final_density_preds = all_density_preds
+        # self.final_density_targets = all_density_targets
+        # self.final_density_logits = all_density_logits
 
         metrics = {
             "birads_precision": birads_precision,  # Get F1 or default to 0
-            "density_precision": density_precision,
+            # "density_precision": density_precision,
             "birads_recall": birads_recall,
-            "density_recall": density_recall,
+            # "density_recall": density_recall,
             "birads_f1": birads_f1,
-            "density_f1": density_f1,
+            # "density_f1": density_f1,
             # Add other metrics from evaluate_classification if needed
         }
 
@@ -616,6 +581,7 @@ class ClassificationTrainer:
             traceback.print_exc()  # Print stack trace for debugging ROC issues
 
         # --- Density Metrics ---
+        """
         try:
 
             density_report = classification_report(
@@ -690,6 +656,7 @@ class ClassificationTrainer:
             import traceback
 
             traceback.print_exc()
+            """
 
     def save_metrics_plots(self):
         """Saves plots for validation metrics (Precision and Recall)."""
@@ -706,8 +673,8 @@ class ClassificationTrainer:
         epochs = epochs[:num_val_epochs]
         birads_prec = self.birads_precision_scores[:num_val_epochs]
         birads_rec = self.birads_recall_scores[:num_val_epochs]
-        density_prec = self.density_precision_scores[:num_val_epochs]
-        density_rec = self.density_recall_scores[:num_val_epochs]
+        # density_prec = self.density_precision_scores[:num_val_epochs]
+        # density_rec = self.density_recall_scores[:num_val_epochs]
 
         if not epochs:
             print("Skipping metrics plot generation: No epochs with validation data.")
@@ -742,6 +709,7 @@ class ClassificationTrainer:
         plt.close()
 
         # --- Plot 2: Density Precision and Recall ---
+        """
         plt.figure(figsize=(8, 5))  # Create a new figure for Density
         plt.plot(
             epochs,
@@ -768,3 +736,4 @@ class ClassificationTrainer:
         plt.savefig(density_plot_path)
         # print(f"Density Precision/Recall plot saved to {density_plot_path}")
         plt.close()  # Close the figure
+        """
