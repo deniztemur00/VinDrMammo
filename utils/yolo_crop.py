@@ -138,11 +138,13 @@ def main(
     output_dir: Path,
 ):
     # Create configuration
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
     config = YOLOConfig()
     cropper = YoloCropper(config, model_path, output_dir)
 
     # Process all folders
-    
+
     cropper.process_all(source_dir)
 
 
@@ -175,7 +177,7 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    
+
     # Use the paths from arguments or defaults
     model_path = Path(args.model)
     source_dir = Path(args.source)
