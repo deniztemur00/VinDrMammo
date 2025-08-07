@@ -4,11 +4,12 @@ metadata/
 data/
 data_output/
 data_output_cropped/
-utils/exploration.ipynb
 utils/split.ipynb
 metadata/
-src/**.ipynb
 VinDrMammoNotebooks/
 deprecated/
 src/sota/retinanet/
+
 **.pth
+**.ipynb
+**.csv
