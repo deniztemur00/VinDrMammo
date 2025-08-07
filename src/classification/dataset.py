@@ -83,7 +83,7 @@ class MammoDataset(Dataset):
     def _get_default_transform(self):
         return transforms.Compose(
             [
-                transforms.Resize((512, 512)),
+                transforms.Resize((224,224)),
                 transforms.ToTensor(),
             ]
         )
