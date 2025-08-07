@@ -10,6 +10,7 @@ class ModelConfig:
     cnn_name: str = "resnet50"
     vit_name: str = "vit_base_patch16_224"
     num_classes: int = 5
+    in_chans: int = 1
     fusion: str = "concat"
     pretrained: bool = True
 
@@ -17,51 +18,53 @@ class ModelConfig:
 class CNN_ViT_Hybrid(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
-        self.fusion = config.fusion
-
-        self.cnn = timm.create_model(
-            config.cnn_name,
-            pretrained=True,
-            in_chans=1,
-            num_classes=0,
-            global_pool="avg",
-        )
-        cnn_out_dim = self.cnn.num_features
-
+        #self.fusion = config.fusion
+#
+        #self.cnn = timm.create_model(
+        #    config.cnn_name,
+        #    pretrained=True,
+        #    in_chans=config.in_chans,
+        #    num_classes=0,
+        #    global_pool="avg",
+        #)
+        #cnn_out_dim = self.cnn.num_features
+        ##print(f"cnn feautre dimension: {cnn_out_dim}")
         # Load pretrained ViT backbone
         self.vit = timm.create_model(
-            config.vit_name, in_chans=1, pretrained=True, num_classes=0
+            config.vit_name, in_chans=config.in_chans, pretrained=True, num_classes=0
         )
         vit_out_dim = self.vit.num_features
-
+        #print(f"ViT feature dimension: {vit_out_dim}")
+        
         # Fusion layer
-        if config.fusion == "concat":
-            fusion_dim = cnn_out_dim + vit_out_dim
-        elif config.fusion == "add":
-            fusion_dim = min(cnn_out_dim, vit_out_dim)
-            self.cnn_proj = nn.Linear(cnn_out_dim, fusion_dim)
-            self.vit_proj = nn.Linear(vit_out_dim, fusion_dim)
-        else:
-            raise ValueError("fusion must be 'concat' or 'add'")
+        #if config.fusion == "concat":
+        #    fusion_dim = cnn_out_dim + vit_out_dim
+        #elif config.fusion == "add":
+        #    fusion_dim = min(cnn_out_dim, vit_out_dim)
+        #    self.cnn_proj = nn.Linear(cnn_out_dim, fusion_dim)
+        #    self.vit_proj = nn.Linear(vit_out_dim, fusion_dim)
+        #else:
+        #    raise ValueError("fusion must be 'concat' or 'add'")
 
         # Final classifier
         self.classifier = nn.Sequential(
-            nn.Linear(fusion_dim, 512),
+            nn.Linear(vit_out_dim, 512),
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(512, config.num_classes),
         )
 
     def forward(self, x):
-        cnn_feat = self.cnn(x)
+        #cnn_feat = self.cnn(x)
         vit_feat = self.vit(x)
+        #print(f"Shape of cnn_feat: {cnn_feat.shape}")
+        #print(f"Shape of vit_feat: {vit_feat.shape}")
+        #if self.fusion == "concat":
+        #    fused = torch.cat([cnn_feat, vit_feat], dim=1)
+        #elif self.fusion == "add":
+        #    fused = self.cnn_proj(cnn_feat) + self.vit_proj(vit_feat)
 
-        if self.fusion == "concat":
-            fused = torch.cat([cnn_feat, vit_feat], dim=1)
-        elif self.fusion == "add":
-            fused = self.cnn_proj(cnn_feat) + self.vit_proj(vit_feat)
-
-        return self.classifier(fused)
+        return self.classifier(vit_feat)
 
 
 class FocalLoss(nn.Module):
