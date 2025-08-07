@@ -31,6 +31,7 @@ class TrainerConfig:
     plot_dir: str = "plots/"
     name: str = None
     focal_loss_gamma: float = 2.0
+    early_stopping_patience: int = 5
     ##Calculated weights (inversely proportional):
 
 
@@ -51,6 +52,7 @@ class ClassificationTrainer:
         self.epochs = config.epochs
         self.model_dir = config.model_dir
         self.plot_dir = config.plot_dir
+        self.early_stopping_patience = config.early_stopping_patience
         self.name = config.name if config.name else "classification_model"
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -151,6 +153,7 @@ class ClassificationTrainer:
     def train(self):
         best_val_loss = float("inf")
         best_birads_f1 = 0.0
+        early_stopping_counter = 0
         try:
             for epoch in range(self.epochs):
                 self.current_epoch = epoch
@@ -170,9 +173,9 @@ class ClassificationTrainer:
                     targets = targets.to(self.device)
 
                     outputs = self.model(images)
-                    
+
                     loss = self.birads_loss_fn(outputs, targets)
-                    #loss, loss_dict = self._calculate_loss(outputs, targets)
+                    # loss, loss_dict = self._calculate_loss(outputs, targets)
 
                     # Backward pass and optimization
                     self.optimizer.zero_grad()
@@ -230,7 +233,20 @@ class ClassificationTrainer:
                             os.path.join(self.model_dir, f"{self.name}_best_model.pth")
                         )
                         self.save_final_metrics_report()  # save only best metrics report
-
+                        early_stopping_counter = 0
+                    else:
+                        early_stopping_counter += 1
+                        if early_stopping_counter >= self.early_stopping_patience:
+                            print(
+                                f"Stopping early as BiRADS F1 score did not improve for {self.early_stopping_patience} epochs."
+                            )
+                            self.save(
+                                os.path.join(
+                                    self.model_dir, f"{self.name}_last_epoch.pth"
+                                )
+                            )
+                            self.save_loss_plot()
+                            return  # Stop training early
                 self.save(os.path.join(self.model_dir, f"{self.name}_last_epoch.pth"))
             self.save_loss_plot()
 
@@ -277,13 +293,13 @@ class ClassificationTrainer:
 
             outputs = self.model(images)
 
-            #loss, loss_dict = self._calculate_loss(outputs, targets)
+            # loss, loss_dict = self._calculate_loss(outputs, targets)
             loss = self.birads_loss_fn(outputs, targets)
             total_val_loss += (
                 loss.item()
             )  # Keep accumulating total loss for final epoch average
             val_birads_loss += loss.item()
-            #val_birads_loss += loss_dict["birads_loss"].item()
+            # val_birads_loss += loss_dict["birads_loss"].item()
             # val_density_loss += loss_dict["density_loss"].item()
             val_batch_count += 1
 
