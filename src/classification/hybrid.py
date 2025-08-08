@@ -7,7 +7,7 @@ from torch.nn import functional as F
 
 @dataclass
 class ModelConfig:
-    cnn_name: str = "resnet50"
+    cnn_name: str = "convnextv2_nano.fcmae_ft_in22k_in1k"
     vit_name: str = "vit_base_patch16_224"
     num_classes: int = 5
     in_chans: int = 1
@@ -15,35 +15,49 @@ class ModelConfig:
     pretrained: bool = True
 
 
+class ConvNextv2Variant(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.cnn = timm.create_model(
+            config.cnn_name,
+            pretrained=config.pretrained,
+            in_chans=config.in_chans,
+            num_classes=config.num_classes,
+        )
+
+    def forward(self, x):
+        return self.cnn(x)
+
+
 class CNN_ViT_Hybrid(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
-        #self.fusion = config.fusion
-#
-        #self.cnn = timm.create_model(
+        # self.fusion = config.fusion
+        #
+        # self.cnn = timm.create_model(
         #    config.cnn_name,
         #    pretrained=True,
         #    in_chans=config.in_chans,
         #    num_classes=0,
         #    global_pool="avg",
-        #)
-        #cnn_out_dim = self.cnn.num_features
+        # )
+        # cnn_out_dim = self.cnn.num_features
         ##print(f"cnn feautre dimension: {cnn_out_dim}")
         # Load pretrained ViT backbone
         self.vit = timm.create_model(
             config.vit_name, in_chans=config.in_chans, pretrained=True, num_classes=0
         )
         vit_out_dim = self.vit.num_features
-        #print(f"ViT feature dimension: {vit_out_dim}")
-        
+        # print(f"ViT feature dimension: {vit_out_dim}")
+
         # Fusion layer
-        #if config.fusion == "concat":
+        # if config.fusion == "concat":
         #    fusion_dim = cnn_out_dim + vit_out_dim
-        #elif config.fusion == "add":
+        # elif config.fusion == "add":
         #    fusion_dim = min(cnn_out_dim, vit_out_dim)
         #    self.cnn_proj = nn.Linear(cnn_out_dim, fusion_dim)
         #    self.vit_proj = nn.Linear(vit_out_dim, fusion_dim)
-        #else:
+        # else:
         #    raise ValueError("fusion must be 'concat' or 'add'")
 
         # Final classifier
@@ -55,13 +69,13 @@ class CNN_ViT_Hybrid(nn.Module):
         )
 
     def forward(self, x):
-        #cnn_feat = self.cnn(x)
+        # cnn_feat = self.cnn(x)
         vit_feat = self.vit(x)
-        #print(f"Shape of cnn_feat: {cnn_feat.shape}")
-        #print(f"Shape of vit_feat: {vit_feat.shape}")
-        #if self.fusion == "concat":
+        # print(f"Shape of cnn_feat: {cnn_feat.shape}")
+        # print(f"Shape of vit_feat: {vit_feat.shape}")
+        # if self.fusion == "concat":
         #    fused = torch.cat([cnn_feat, vit_feat], dim=1)
-        #elif self.fusion == "add":
+        # elif self.fusion == "add":
         #    fused = self.cnn_proj(cnn_feat) + self.vit_proj(vit_feat)
 
         return self.classifier(vit_feat)
