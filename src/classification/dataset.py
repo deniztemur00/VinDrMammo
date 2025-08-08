@@ -19,7 +19,7 @@ class MammoDataset(Dataset):
         transform=None,
     ):
         self.df = df
-        self.img_size = (224, 224)
+        self.img_size = (224,224)  # Default image size for ConvNeXt models
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dataset_path = (
             "/home/deniztemur/Dataset/vindrmammo_findings_dataset_cropped/"
@@ -39,7 +39,7 @@ class MammoDataset(Dataset):
     def _get_test_augmentation(self):
         return A.Compose(
             [
-                A.Resize(self.img_size[0], self.img_size[1]),
+                A.Resize(288, 288),
                 A.Normalize(),
                 ToTensorV2(),
             ]
@@ -53,8 +53,8 @@ class MammoDataset(Dataset):
                 A.ShiftScaleRotate(
                     shift_limit=0.05,
                     scale_limit=0.05,
-                    rotate_limit=0.05,
-                    p=0.4,
+                    rotate_limit=0.10,
+                    p=0.7,
                     border_mode=0,
                 ),
                 # Intensity augmentations
@@ -77,13 +77,12 @@ class MammoDataset(Dataset):
             "denoise": "gaussian",  # Options: 'gaussian', 'median', None
             "contrast": "clahe",  # Options: 'clahe', 'hist_eq', None
             "sharpen": True,  # Boolean
-            "normalize": "minmax",  # Options: 'zscore', 'minmax', None
         }
 
     def _get_default_transform(self):
         return transforms.Compose(
             [
-                transforms.Resize((224,224)),
+                transforms.Resize((224, 224)),
                 transforms.ToTensor(),
             ]
         )
@@ -113,13 +112,6 @@ class MammoDataset(Dataset):
             kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
             img = cv2.filter2D(img, -1, kernel)
 
-        # Normalization
-        if self.cfg.get("normalize") == "zscore":
-            img = (img - np.mean(img)) / (np.std(img) + 1e-5)
-        elif self.cfg.get("normalize") == "minmax":
-            img = (img - np.min(img)) / (np.max(img) - np.min(img) + 1e-5)
-            img = (img * 255).astype(np.uint8)
-
         return Image.fromarray(img)
 
     def __getitem__(self, idx):
@@ -129,12 +121,13 @@ class MammoDataset(Dataset):
         )
         label = self.birads_map.get(row["breast_birads"], -1)
 
-        image = Image.open(img_path).convert("L")  # Mammograms are grayscale
-
-        image = self.apply_preprocessing(image)
+        img = Image.open(img_path).convert("L")  # Mammograms are grayscale
+        image = np.array(img)
+        #image = np.stack([img, img, img], axis=-1)
+        # image = self.apply_preprocessing(image)
 
         # image = self.transform(image)
-        image = np.array(image)
+        #image = np.array(image)
 
         image = self.augment(image=image)["image"]
 
