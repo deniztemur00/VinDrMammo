@@ -20,18 +20,20 @@ import seaborn as sns
 import numpy as np
 from itertools import cycle
 from scipy.special import softmax
+from torch.amp import GradScaler, autocast
+from timm.scheduler import CosineLRScheduler
 
 
 @dataclass
 class TrainerConfig:
     epochs: int = 10
-    lr: float = 2e-4
-    weight_decay: float = 0.07
+    lr: float = 1e-5
+    weight_decay: float = 0.09
     model_dir: str = "models/"
     plot_dir: str = "plots/"
     name: str = None
     focal_loss_gamma: float = 2.0
-    early_stopping_patience: int = 5
+    early_stopping_patience: int = 10
     ##Calculated weights (inversely proportional):
 
 
@@ -79,10 +81,18 @@ class ClassificationTrainer:
         # self.density_loss_fn = nn.CrossEntropyLoss()
 
         # Scheduler
-        self.scheduler = CosineAnnealingLR(
+        # self.scheduler = CosineAnnealingLR(
+        #    self.optimizer,
+        #    T_max=config.epochs,
+        #    eta_min=1e-6,
+        # )
+        self.scheduler = CosineLRScheduler(
             self.optimizer,
-            T_max=config.epochs,
-            eta_min=1e-6,
+            t_initial=config.epochs,
+            lr_min=1e-6,
+            warmup_lr_init=1e-6,
+            warmup_t=config.epochs // 10,  # 10% of epochs for warmup
+            cycle_limit=1,
         )
 
         print(
@@ -154,6 +164,9 @@ class ClassificationTrainer:
         best_val_loss = float("inf")
         best_birads_f1 = 0.0
         early_stopping_counter = 0
+        scaler = GradScaler(
+            "cuda", enabled=True
+        )  # Initialize GradScaler for mixed precision
         try:
             for epoch in range(self.epochs):
                 self.current_epoch = epoch
@@ -171,20 +184,24 @@ class ClassificationTrainer:
                 for images, targets in train_pbar:
                     images = images.to(self.device)
                     targets = targets.to(self.device)
+                    self.optimizer.zero_grad()
 
-                    outputs = self.model(images)
-
-                    loss = self.birads_loss_fn(outputs, targets)
-                    # loss, loss_dict = self._calculate_loss(outputs, targets)
+                    with autocast("cuda", enabled=True):
+                        # Forward pass
+                        # outputs = self.model(images)
+                        outputs = self.model(images)
+                        loss = self.birads_loss_fn(outputs, targets)
+                        # loss, loss_dict = self._calculate_loss(outputs, targets)
 
                     # Backward pass and optimization
-                    self.optimizer.zero_grad()
-                    loss.backward()
-
+                    scaler.scale(loss).backward()
+                    scaler.step(self.optimizer)
+                    # loss.backward()
+                    scaler.update()
                     # Optional: Gradient clipping
                     # nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
-                    self.optimizer.step()
+                    # self.optimizer.step() commented out for scaler step
 
                     epoch_loss += loss.item()
                     epoch_birads_loss += loss.item()
@@ -192,7 +209,8 @@ class ClassificationTrainer:
                     batch_count += 1
 
                     # Update progress bar postfix
-                    lr = self.scheduler.get_last_lr()[0]  # Get current LR
+                    # lr = self.scheduler.get_last_lr()[0]  # Get current LR
+                    lr = self.scheduler._get_lr(epoch + 1)[0]
                     train_pbar.set_postfix(
                         {
                             "avg_birads_loss": f"{epoch_birads_loss / batch_count:.4f}",
@@ -203,7 +221,7 @@ class ClassificationTrainer:
                     )
 
                 # Step the scheduler after each epoch
-                self.scheduler.step()
+                self.scheduler.step(epoch=epoch + 1)
 
                 avg_epoch_loss = epoch_loss / len(self.train_loader)
                 self.train_losses.append(avg_epoch_loss)
