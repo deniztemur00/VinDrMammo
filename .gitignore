@@ -9,6 +9,9 @@ metadata/
 VinDrMammoNotebooks/
 deprecated/
 src/sota/retinanet/
+src/classification/train_dense.py
+src/classification/train_hybrid.py
+
 
 **.pth
 **.ipynb
