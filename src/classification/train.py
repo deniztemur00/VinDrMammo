@@ -27,8 +27,8 @@ from timm.scheduler import CosineLRScheduler
 @dataclass
 class TrainerConfig:
     epochs: int = 10
-    lr: float = 1e-5
-    weight_decay: float = 0.09
+    lr: float = 1e-4
+    weight_decay: float = 0.05
     model_dir: str = "models/"
     plot_dir: str = "plots/"
     name: str = None
@@ -74,10 +74,10 @@ class ClassificationTrainer:
             self.model.parameters(), lr=config.lr, weight_decay=config.weight_decay
         )
 
-        self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
+        #self.birads_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
         # self.density_loss_fn = FocalLoss(gamma=config.focal_loss_gamma)
 
-        # self.birads_loss_fn = nn.CrossEntropyLoss()
+        self.birads_loss_fn = torch.nn.CrossEntropyLoss(label_smoothing=0.1)
         # self.density_loss_fn = nn.CrossEntropyLoss()
 
         # Scheduler
@@ -91,7 +91,7 @@ class ClassificationTrainer:
             t_initial=config.epochs,
             lr_min=1e-6,
             warmup_lr_init=1e-6,
-            warmup_t=config.epochs // 10,  # 10% of epochs for warmup
+            warmup_t=5,  # 10% of epochs for warmup
             cycle_limit=1,
         )
 
