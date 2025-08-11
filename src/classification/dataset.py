@@ -19,7 +19,7 @@ class MammoDataset(Dataset):
         transform=None,
     ):
         self.df = df
-        self.img_size = (224,224)  # Default image size for ConvNeXt models
+        self.img_size = (224, 224)  # Default image size for ConvNeXt models
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dataset_path = (
             "/home/deniztemur/Dataset/vindrmammo_findings_dataset_cropped/"
@@ -40,7 +40,7 @@ class MammoDataset(Dataset):
         return A.Compose(
             [
                 A.Resize(288, 288),
-                A.Normalize(),
+                A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                 ToTensorV2(),
             ]
         )
@@ -51,23 +51,19 @@ class MammoDataset(Dataset):
                 # Spatial augmentations
                 A.HorizontalFlip(p=0.5),
                 A.ShiftScaleRotate(
-                    shift_limit=0.05,
-                    scale_limit=0.05,
-                    rotate_limit=0.10,
-                    p=0.7,
+                    shift_limit=0.03,
+                    scale_limit=0.03,
+                    rotate_limit=5,
+                    p=0.5,
                     border_mode=0,
                 ),
-                # Intensity augmentations
                 A.RandomBrightnessContrast(
-                    brightness_limit=0.1, contrast_limit=0.1, p=0.3
+                    brightness_limit=0.05, contrast_limit=0.05, p=0.4
                 ),
-                # A.GaussNoise(var_limit=(5.0, 20.0), p=0.3),
-                A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.2),
-                # Robustness
-                A.GridDistortion(p=0.1),
-                # Resize and ToTensor
+                A.GaussianBlur(blur_limit=(3, 5), p=0.2),
+                A.GaussNoise(var_limit=(5.0, 20.0), p=0.3),
                 A.Resize(self.img_size[0], self.img_size[1]),
-                A.Normalize(),
+                A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                 ToTensorV2(),
             ]
         )
@@ -122,12 +118,12 @@ class MammoDataset(Dataset):
         label = self.birads_map.get(row["breast_birads"], -1)
 
         img = Image.open(img_path).convert("L")  # Mammograms are grayscale
-        image = np.array(img)
-        #image = np.stack([img, img, img], axis=-1)
+        img = np.array(img)
+        image = np.stack([img, img, img], axis=-1)
         # image = self.apply_preprocessing(image)
 
         # image = self.transform(image)
-        #image = np.array(image)
+        # image = np.array(image)
 
         image = self.augment(image=image)["image"]
 
