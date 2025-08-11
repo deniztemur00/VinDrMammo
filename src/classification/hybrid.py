@@ -10,7 +10,7 @@ class ModelConfig:
     cnn_name: str = "convnextv2_nano.fcmae_ft_in22k_in1k"
     vit_name: str = "vit_base_patch16_224"
     num_classes: int = 5
-    in_chans: int = 1
+    in_chans: int = 3
     fusion: str = "concat"
     pretrained: bool = True
 
@@ -23,6 +23,7 @@ class ConvNextv2Variant(nn.Module):
             pretrained=config.pretrained,
             in_chans=config.in_chans,
             num_classes=config.num_classes,
+            #drop_path_rate=0.2,
         )
 
     def forward(self, x):
